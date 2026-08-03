@@ -12,7 +12,7 @@ fn main() {
         id: 1,
         name: String::from("Alice"),
         department: String::from("Financial Crimes"),
-        email: String::from("alice@finsight.ai"),
+        email: Some(String::from("alice@finsight.ai")),
         years_experience: 8,
     };
 
