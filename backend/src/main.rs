@@ -23,8 +23,10 @@ fn main() {
         status: CaseStatus::Open,
     };
 
-    services::display_case(&case);
-    services::display_investigator(&investigator);
+    investigator.display();
+    case.display();
+    println!("Senior Investigator: {}", investigator.is_senior());
+    println!("High Risk Case: {} ", case.is_high_risk());
     services::display_status(&case.status);
     services::process_case(&case);
 
