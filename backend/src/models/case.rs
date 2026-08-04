@@ -8,6 +8,13 @@ pub struct Case {
 }
 
 impl Case {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.risk_score >= 100 {
+            Err(String::from("Risk score cannot excede 100"))
+        } else {
+            Ok(())
+        }
+    }
     pub fn display(&self) {
         println!("Case : {} ", self.title);
         println!("Risk Score : {} ", self.risk_score);

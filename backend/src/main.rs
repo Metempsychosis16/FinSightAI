@@ -19,9 +19,20 @@ fn main() {
     let case = Case {
         id: 10011,
         title: String::from("International Money Laundering"),
-        risk_score: 92,
+        risk_score: 200,
+
         status: CaseStatus::Open,
     };
+
+    match case.validate() {
+        Ok(()) => {
+            println!("Case Validation passed");
+        }
+
+        Err(error) => {
+            println!("Validation Error: {} ", error);
+        }
+    }
 
     investigator.display();
     case.display();
