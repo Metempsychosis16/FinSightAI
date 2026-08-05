@@ -1,6 +1,7 @@
 use crate::models::case::Case;
 use crate::models::investigator::Investigator;
 use crate::models::status::CaseStatus;
+use crate::models::validation::Validate;
 
 pub fn display_status(status: &CaseStatus) {
     match status {
@@ -54,4 +55,15 @@ pub fn display_investigator(investigator: &Investigator) {
 pub fn display_case(case: &Case) {
     println!("Case : {} ", case.title);
     println!("Risk : {} ", case.risk_score);
+}
+
+pub fn validate_model<T: Validate>(model: &T) {
+    match model.validate() {
+        Ok(()) => {
+            println!("validation successful.");
+        }
+        Err(error) => {
+            println!("Validation failed: {}", error);
+        }
+    }
 }

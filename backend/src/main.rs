@@ -6,6 +6,7 @@ mod utils;
 use models::case::Case;
 use models::investigator::Investigator;
 use models::status::CaseStatus;
+use models::validation::Validate;
 
 fn main() {
     let investigator = Investigator {
@@ -24,16 +25,8 @@ fn main() {
         status: CaseStatus::Open,
     };
 
-    match case.validate() {
-        Ok(()) => {
-            println!("Case Validation passed");
-        }
-
-        Err(error) => {
-            println!("Validation Error: {} ", error);
-        }
-    }
-
+    services::validate_model(&investigator);
+    services::validate_model(&case);
     investigator.display();
     case.display();
     println!("Senior Investigator: {}", investigator.is_senior());
