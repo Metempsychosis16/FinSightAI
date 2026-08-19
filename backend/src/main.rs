@@ -3,40 +3,19 @@ mod models;
 mod services;
 mod utils;
 
-use models::case::Case;
-use models::investigator::Investigator;
-use models::status::CaseStatus;
-use models::validation::Validate;
+use axum::{Router, routing::get};
 
-fn main() {
-    let investigator = Investigator {
-        id: 1,
-        name: String::from("Alice"),
-        department: String::from("Financial Crimes"),
-        email: Some(String::from("alice@finsight.ai")),
-        years_experience: 8,
-    };
+async fn health_check() -> &'static str {
+    "Finsigh AI backend is healthy"
+}
+#[tokio::main]
 
-    let case = Case {
-        id: 10011,
-        title: String::from("International Money Laundering"),
-        risk_score: 200,
+async fn main() {
+    let app = Router::new().route("/health", get(health_check));
 
-        status: CaseStatus::Open,
-    };
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    services::validate_model(&investigator);
-    services::validate_model(&case);
-    investigator.display();
-    case.display();
-    println!("Senior Investigator: {}", investigator.is_senior());
-    println!("High Risk Case: {} ", case.is_high_risk());
-    services::display_status(&case.status);
-    services::process_case(&case);
+    println!("Finsigh AI server running on http://localhost:3000");
 
-    println!("{}", config::APP_NAME);
-
-    println!("{}", investigator.name);
-
-    println!("{}", case.title);
+    axum::serve(listener, app).await.unwrap();
 }

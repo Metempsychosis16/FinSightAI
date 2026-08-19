@@ -46,17 +46,6 @@ pub fn process_case(case: &Case) {
     }
 }
 
-pub fn display_investigator(investigator: &Investigator) {
-    println!("Name : {} ", investigator.name);
-
-    println!("Department : {} ", investigator.department);
-}
-
-pub fn display_case(case: &Case) {
-    println!("Case : {} ", case.title);
-    println!("Risk : {} ", case.risk_score);
-}
-
 pub fn validate_model<T: Validate>(model: &T) {
     match model.validate() {
         Ok(()) => {
