@@ -3,9 +3,12 @@ mod models;
 mod services;
 mod utils;
 
-use axum::{Json, Router, routing::get};
+use axum::{
+    Json, Router,
+    routing::{get, post},
+};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 
@@ -21,6 +24,13 @@ struct AboutResponse {
     purpose: &'static str,
 }
 
+#[derive(Deserialize)]
+
+struct CreateCaseRequest {
+    title: String,
+    risk_score: u8,
+}
+
 async fn about() -> Json<AboutResponse> {
     Json(AboutResponse {
         name: "Finsight AI",
@@ -34,12 +44,24 @@ async fn health_check() -> Json<HealthResponse> {
         service: "Finsight AI",
     })
 }
+
+async fn create_case(Json(payload): Json<CreateCaseRequest>) -> Json<HealthResponse> {
+    println!("Create Case : {}", payload.title);
+    println!("Risk Score : {}", payload.risk_score);
+
+    Json(HealthResponse {
+        status: "case recieved",
+        service: "Finsight AI",
+    })
+}
+
 #[tokio::main]
 
 async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
-        .route("/about", get(about));
+        .route("/about", get(about))
+        .route("/cases", post(create_case));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
