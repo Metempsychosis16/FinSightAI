@@ -1,107 +1,16 @@
 mod config;
 mod models;
+mod routes;
 mod services;
 mod utils;
 
-use axum::{
-    Json, Router,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
-};
-
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize)]
-
-struct HealthResponse {
-    status: &'static str,
-    service: &'static str,
-}
-
-#[derive(Serialize)]
-
-struct AboutResponse {
-    name: &'static str,
-    purpose: &'static str,
-}
-
-#[derive(Deserialize)]
-
-struct CreateCaseRequest {
-    title: String,
-    risk_score: u8,
-}
-#[derive(Serialize)]
-
-struct CaseResponse {
-    title: String,
-    risk_score: u8,
-}
-struct ApiError {
-    status: StatusCode,
-    error: &'static str,
-    message: String,
-}
-
-async fn about() -> Json<AboutResponse> {
-    Json(AboutResponse {
-        name: "Finsight AI",
-        purpose: "AI Financial Crime Investigation Platform",
-    })
-}
-
-async fn health_check() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "Healthy",
-        service: "Finsight AI",
-    })
-}
-
-async fn create_case(
-    Json(payload): Json<CreateCaseRequest>,
-) -> Result<(StatusCode, Json<CaseResponse>), ApiError> {
-    if payload.title.trim().is_empty() {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            error: "validation_error",
-            message: String::from("title cannot be empty"),
-        });
-    }
-    if payload.risk_score > 100 {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            error: "validation_error",
-            message: String::from("risk_score must be between 0 to 100"),
-        });
-    }
-
-    Ok((
-        StatusCode::CREATED,
-        Json(CaseResponse {
-            title: payload.title,
-            risk_score: payload.risk_score,
-        }),
-    ))
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        let body = Json(serde_json::json!({
-            "error":self.error,
-            "message":self.message,
-        }));
-        (self.status, body).into_response()
-    }
-}
+use axum::serve;
+use tokio::net::TcpListener;
 
 #[tokio::main]
 
 async fn main() {
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .route("/about", get(about))
-        .route("/cases", post(create_case));
+    let app = routes::create_router();
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
