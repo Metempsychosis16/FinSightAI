@@ -10,7 +10,10 @@ use tokio::net::TcpListener;
 #[tokio::main]
 
 async fn main() {
-    let app = routes::create_router();
+    let state = routes::AppState {
+        app_name: String::from("Finsight AI"),
+    };
+    let app = routes::create_router(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 

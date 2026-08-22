@@ -1,5 +1,6 @@
 use axum::{
     Json, Router,
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -7,11 +8,16 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone)]
+pub struct AppState {
+    pub app_name: String,
+}
+
 #[derive(Serialize)]
 
 struct HealthResponse {
     status: &'static str,
-    service: &'static str,
+    service: String,
 }
 
 #[derive(Serialize)]
@@ -45,10 +51,10 @@ async fn about() -> Json<AboutResponse> {
     })
 }
 
-async fn health_check() -> Json<HealthResponse> {
+async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "Healthy",
-        service: "Finsight AI",
+        service: state.app_name.clone(),
     })
 }
 
@@ -97,9 +103,10 @@ impl IntoResponse for ApiError {
     }
 }
 
-pub fn create_router() -> Router {
+pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/cases", post(create_case))
         .route("/about", get(about))
+        .with_state(state)
 }
