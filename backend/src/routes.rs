@@ -7,10 +7,13 @@ use axum::{
 };
 
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct AppState {
     pub app_name: String,
+    pub environment: String,
+    pub db: PgPool,
 }
 
 #[derive(Serialize)]
@@ -93,6 +96,24 @@ async fn create_case(
     ))
 }
 
+async fn database_health(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    sqlx::query("SELECT 1")
+        .execute(&state.db)
+        .await
+        .map_err(|error| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "database_error",
+            message: error.to_string(),
+        })?;
+    Ok(Json(serde_json::json!({
+
+        "status":"health",
+        "database":"connected"
+    })))
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let body = Json(serde_json::json!({
@@ -108,5 +129,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         .route("/cases", post(create_case))
         .route("/about", get(about))
+        .route("/health/database", get(database_health))
         .with_state(state)
 }
