@@ -6,6 +6,7 @@ use axum::{
     routing::{get, post},
 };
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -35,11 +36,14 @@ struct CreateCaseRequest {
     title: String,
     risk_score: u8,
 }
-#[derive(Serialize)]
+
+#[derive(Serialize, sqlx::FromRow)]
 
 struct CaseResponse {
+    id: i64,
     title: String,
-    risk_score: u8,
+    risk_score: i16,
+    created_at: DateTime<Utc>,
 }
 struct ApiError {
     status: StatusCode,
@@ -62,6 +66,7 @@ async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
 }
 
 async fn create_case(
+    State(state): State<AppState>,
     Json(payload): Json<CreateCaseRequest>,
 ) -> Result<(StatusCode, Json<CaseResponse>), ApiError> {
     if payload.title.trim().is_empty() {
@@ -87,13 +92,27 @@ async fn create_case(
         });
     }
 
-    Ok((
-        StatusCode::CREATED,
-        Json(CaseResponse {
-            title: payload.title,
-            risk_score: payload.risk_score,
-        }),
-    ))
+    let case = sqlx::query_as::<_, CaseResponse>(
+        r#"
+        INSERT INTO cases(title,risk_score)
+        VALUES($1,$2)
+        RETURNING id,title,risk_score,created_at
+        "#,
+    )
+    .bind(payload.title.trim())
+    .bind(i16::from(payload.risk_score))
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| {
+        eprintln!("Database error while creating case:{error}");
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "database_error",
+            message: String::from("failed to create case"),
+        }
+    })?;
+
+    Ok((StatusCode::CREATED, Json(case)))
 }
 
 async fn database_health(
