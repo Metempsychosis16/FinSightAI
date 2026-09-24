@@ -11,6 +11,7 @@ use tokio::net::TcpListener;
 #[tokio::main]
 
 async fn main() {
+    dotenvy::dotenv().ok();
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     let db = PgPool::connect(&database_url)

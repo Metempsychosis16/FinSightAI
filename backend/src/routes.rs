@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path,State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -115,6 +115,90 @@ async fn create_case(
     Ok((StatusCode::CREATED, Json(case)))
 }
 
+async fn list_cases(State(state): State<AppState>) -> Result<Json<Vec<CaseResponse>>, ApiError> {
+    let cases = sqlx::query_as::<_, CaseResponse>(
+        r#"
+        SELECT id, title, risk_score, created_at
+        FROM cases 
+        ORDER BY created_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|error| {
+        eprintln!("Database error while listing cases:{error}");
+
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "database_error",
+            message: String::from("failed to retrieve cases"),
+        }
+    })?;
+
+    Ok(Json(cases))
+}
+async fn list_high_risk_cases(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<CaseResponse>>, ApiError> {
+    let cases = sqlx::query_as::<_, CaseResponse>(
+        r#"
+        SELECT id,title,risk_score,created_at
+        FROM cases
+        WHERE risk_score>= 80
+        ORDER BY created_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|error| {
+        eprintln!("Database error while listing the high risk cases :{error}");
+
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "database_error",
+            message: String::from(" Failed to retrieve high risk cases"),
+        }
+    })?;
+
+    Ok(Json(cases))
+}
+
+
+async fn get_case(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<CaseResponse>, ApiError> {
+    let case = sqlx::query_as::<_, CaseResponse>(
+        r#"
+        SELECT id, title, risk_score, created_at
+        FROM cases
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|error| {
+        eprintln!("Database error while retrieving case: {error}");
+
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "database_error",
+            message: String::from("failed to retrieve case"),
+        }
+    })?;
+
+    match case {
+        Some(case) => Ok(Json(case)),
+
+        None => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("case not found"),
+        }),
+    }
+}
+
 async fn database_health(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -146,7 +230,9 @@ impl IntoResponse for ApiError {
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
-        .route("/cases", post(create_case))
+        .route("/cases/", get(list_cases).post(create_case))
+        .route("/cases/high-risk", get(list_high_risk_cases))
+        .route("/cases/{id}",get(get_case))
         .route("/about", get(about))
         .route("/health/database", get(database_health))
         .with_state(state)
