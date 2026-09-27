@@ -1,0 +1,6 @@
+CREATE TABLE cases (
+    id BIGSERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    risk_score SMALLINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
