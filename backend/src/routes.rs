@@ -51,6 +51,7 @@ struct CaseResponse {
     title: String,
     risk_score: i16,
     created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 struct ApiError {
     status: StatusCode,
@@ -103,7 +104,7 @@ async fn create_case(
         r#"
         INSERT INTO cases(title,risk_score)
         VALUES($1,$2)
-        RETURNING id,title,risk_score,created_at
+        RETURNING id,title,risk_score,created_at,updated_at
         "#,
     )
     .bind(payload.title.trim())
@@ -125,7 +126,7 @@ async fn create_case(
 async fn list_cases(State(state): State<AppState>) -> Result<Json<Vec<CaseResponse>>, ApiError> {
     let cases = sqlx::query_as::<_, CaseResponse>(
         r#"
-        SELECT id, title, risk_score, created_at
+        SELECT id, title, risk_score, created_at,updated_at
         FROM cases 
         ORDER BY created_at DESC
         "#,
@@ -176,7 +177,7 @@ async fn get_case(
 ) -> Result<Json<CaseResponse>, ApiError> {
     let case = sqlx::query_as::<_, CaseResponse>(
         r#"
-        SELECT id, title, risk_score, created_at
+        SELECT id, title, risk_score, created_at,updated_at
         FROM cases
         WHERE id = $1
         "#,
@@ -256,7 +257,7 @@ async fn update_case(
 
     let existing = sqlx::query_as::<_, CaseResponse>(
         r#"
-    SELECT id,title,risk_score,created_at
+    SELECT id,title,risk_score,created_at,updated_at
     FROM cases
     WHERE id=$1
     "#,
@@ -296,9 +297,10 @@ async fn update_case(
         r#"
         UPDATE cases
         SET title=$1,
-        risk_score=$2
+        risk_score=$2,
+        updated_at=NOW()
         WHERE id=$3
-        RETURNING id,title,risk_score,created_at
+        RETURNING id,title,risk_score,created_at,updated_at
         "#,
     )
     .bind(title.trim())
@@ -392,9 +394,12 @@ impl IntoResponse for ApiError {
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
-        .route("/cases/", get(list_cases).post(create_case))
+        .route("/cases", get(list_cases).post(create_case))
         .route("/cases/high-risk", get(list_high_risk_cases))
-        .route("/cases/{id}", get(get_case).patch(update_case).delete(delete_case))
+        .route(
+            "/cases/{id}",
+            get(get_case).patch(update_case).delete(delete_case),
+        )
         .route("/about", get(about))
         .route("/health/database", get(database_health))
         .with_state(state)
