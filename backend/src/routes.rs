@@ -50,6 +50,7 @@ struct CaseResponse {
     id: i64,
     title: String,
     risk_score: i16,
+    status: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -104,7 +105,7 @@ async fn create_case(
         r#"
         INSERT INTO cases(title,risk_score)
         VALUES($1,$2)
-        RETURNING id,title,risk_score,created_at,updated_at
+        RETURNING id,title,risk_score,status,created_at,updated_at
         "#,
     )
     .bind(payload.title.trim())
@@ -126,7 +127,7 @@ async fn create_case(
 async fn list_cases(State(state): State<AppState>) -> Result<Json<Vec<CaseResponse>>, ApiError> {
     let cases = sqlx::query_as::<_, CaseResponse>(
         r#"
-        SELECT id, title, risk_score, created_at,updated_at
+        SELECT id, title, risk_score, status,created_at,updated_at
         FROM cases 
         ORDER BY created_at DESC
         "#,
@@ -177,7 +178,7 @@ async fn get_case(
 ) -> Result<Json<CaseResponse>, ApiError> {
     let case = sqlx::query_as::<_, CaseResponse>(
         r#"
-        SELECT id, title, risk_score, created_at,updated_at
+        SELECT id, title, risk_score, status,created_at,updated_at
         FROM cases
         WHERE id = $1
         "#,
@@ -257,7 +258,7 @@ async fn update_case(
 
     let existing = sqlx::query_as::<_, CaseResponse>(
         r#"
-    SELECT id,title,risk_score,created_at,updated_at
+    SELECT id,title,risk_score,created_at,status,updated_at
     FROM cases
     WHERE id=$1
     "#,
@@ -300,7 +301,7 @@ async fn update_case(
         risk_score=$2,
         updated_at=NOW()
         WHERE id=$3
-        RETURNING id,title,risk_score,created_at,updated_at
+        RETURNING id,title,risk_score,status,created_at,updated_at
         "#,
     )
     .bind(title.trim())
