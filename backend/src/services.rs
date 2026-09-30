@@ -9,7 +9,7 @@ pub fn display_status(status: &CaseStatus) {
             println!("Case is open.");
         }
 
-        CaseStatus::UnderInvestigation => {
+        CaseStatus::UnderReview => {
             println!("Investigation in progress.");
         }
         CaseStatus::Esclated => {
@@ -18,6 +18,10 @@ pub fn display_status(status: &CaseStatus) {
 
         CaseStatus::Closed => {
             println!("Case Closed.");
+        }
+
+        CaseStatus::Archived => {
+            println!("handle archived case");
         }
     }
 }
@@ -32,7 +36,7 @@ pub fn process_case(case: &Case) {
             println!("Assign Investigator")
         }
 
-        CaseStatus::UnderInvestigation => {
+        CaseStatus::UnderReview => {
             println!("Collect financial evidence");
         }
 
@@ -41,7 +45,10 @@ pub fn process_case(case: &Case) {
         }
 
         CaseStatus::Closed => {
-            println!("Archive records.");
+            println!("Case Closed.");
+        }
+        CaseStatus::Archived => {
+            println!("Archived Records")
         }
     }
 }

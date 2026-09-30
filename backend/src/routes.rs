@@ -1,3 +1,4 @@
+use crate::models::status::CaseStatus;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -44,9 +45,20 @@ struct UpdateCaseRequest {
     risk_score: Option<u8>,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 
 struct CaseResponse {
+    id: i64,
+    title: String,
+    risk_score: i16,
+    status: CaseStatus,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+
+struct CaseRow {
     id: i64,
     title: String,
     risk_score: i16,
@@ -54,6 +66,7 @@ struct CaseResponse {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
+
 struct ApiError {
     status: StatusCode,
     error: &'static str,
@@ -72,6 +85,36 @@ async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
         status: "Healthy",
         service: state.app_name.clone(),
     })
+}
+
+impl TryFrom<CaseRow> for CaseResponse {
+    type Error = ApiError;
+
+    fn try_from(row: CaseRow) -> Result<Self, Self::Error> {
+        let status = match row.status.as_str() {
+            "OPEN" => CaseStatus::Open,
+            "UNDER_REVIEW" => CaseStatus::UnderReview,
+            "ESCLATED" => CaseStatus::Esclated,
+            "CLOSED" => CaseStatus::Closed,
+            "ARCHIVED" => CaseStatus::Archived,
+            _ => {
+                return Err(ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    error: "invalid_case_status",
+                    message: String::from("invalid case status in database"),
+                });
+            }
+        };
+
+        Ok(Self {
+            id: row.id,
+            title: row.title,
+            risk_score: row.risk_score,
+            status,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
+    }
 }
 
 async fn create_case(
@@ -101,7 +144,7 @@ async fn create_case(
         });
     }
 
-    let case = sqlx::query_as::<_, CaseResponse>(
+    let row = sqlx::query_as::<_, CaseRow>(
         r#"
         INSERT INTO cases(title,risk_score)
         VALUES($1,$2)
@@ -121,11 +164,13 @@ async fn create_case(
         }
     })?;
 
+    let case = CaseResponse::try_from(row)?;
+
     Ok((StatusCode::CREATED, Json(case)))
 }
 
 async fn list_cases(State(state): State<AppState>) -> Result<Json<Vec<CaseResponse>>, ApiError> {
-    let cases = sqlx::query_as::<_, CaseResponse>(
+    let cases = sqlx::query_as::<_, CaseRow>(
         r#"
         SELECT id, title, risk_score, status,created_at,updated_at
         FROM cases 
@@ -144,12 +189,17 @@ async fn list_cases(State(state): State<AppState>) -> Result<Json<Vec<CaseRespon
         }
     })?;
 
+    let cases = cases
+        .into_iter()
+        .map(CaseResponse::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(Json(cases))
 }
 async fn list_high_risk_cases(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<CaseResponse>>, ApiError> {
-    let cases = sqlx::query_as::<_, CaseResponse>(
+    let cases = sqlx::query_as::<_, CaseRow>(
         r#"
         SELECT id,title,risk_score,created_at
         FROM cases
@@ -169,6 +219,11 @@ async fn list_high_risk_cases(
         }
     })?;
 
+    let cases = cases
+        .into_iter()
+        .map(CaseResponse::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+
     Ok(Json(cases))
 }
 
@@ -176,7 +231,7 @@ async fn get_case(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<CaseResponse>, ApiError> {
-    let case = sqlx::query_as::<_, CaseResponse>(
+    let case = sqlx::query_as::<_, CaseRow>(
         r#"
         SELECT id, title, risk_score, status,created_at,updated_at
         FROM cases
@@ -197,7 +252,7 @@ async fn get_case(
     })?;
 
     match case {
-        Some(case) => Ok(Json(case)),
+        Some(row) => Ok(Json(CaseResponse::try_from(row)?)),
 
         None => Err(ApiError {
             status: StatusCode::NOT_FOUND,
@@ -256,7 +311,7 @@ async fn update_case(
         }
     }
 
-    let existing = sqlx::query_as::<_, CaseResponse>(
+    let existing = sqlx::query_as::<_, CaseRow>(
         r#"
     SELECT id,title,risk_score,created_at,status,updated_at
     FROM cases
@@ -294,7 +349,7 @@ async fn update_case(
         .map(i16::from)
         .unwrap_or(existing.risk_score);
 
-    let updated_case = sqlx::query_as::<_, CaseResponse>(
+    let row = sqlx::query_as::<_, CaseRow>(
         r#"
         UPDATE cases
         SET title=$1,
@@ -318,6 +373,8 @@ async fn update_case(
             message: String::from("failed to update case"),
         }
     })?;
+
+    let updated_case = CaseResponse::try_from(row)?;
 
     Ok(Json(updated_case))
 }
