@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 
 use chrono::{DateTime, Utc};
@@ -16,6 +16,11 @@ pub struct AppState {
     pub app_name: String,
     pub environment: String,
     pub db: PgPool,
+}
+
+#[derive(Deserialize)]
+struct UpdateCaseStatusRequest {
+    status: CaseStatus,
 }
 
 #[derive(Serialize)]
@@ -449,6 +454,103 @@ impl IntoResponse for ApiError {
     }
 }
 
+async fn update_case_status(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateCaseStatusRequest>,
+) -> Result<Json<CaseResponse>, ApiError> {
+    if id <= 0 {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "validation_error",
+            message: String::from("case id must be greater than 0"),
+        });
+    }
+    let current_status = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT status
+        FROM cases
+        WHERE id=$1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|error| {
+        eprintln!("Database error while retrieving case status: {error}");
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "database_error",
+            message: String::from("failed to retrieve case"),
+        }
+    })?;
+
+    let current_status = match current_status {
+        Some(status) => status,
+        None => {
+            return Err(ApiError {
+                status: StatusCode::NOT_FOUND,
+                error: "case not found",
+                message: String::from("case not found"),
+            });
+        }
+    };
+    let current_status = match current_status.as_str() {
+        "OPEN" => CaseStatus::Open,
+        "UNDER_REVIEW" => CaseStatus::UnderReview,
+        "ESCLATED" => CaseStatus::Esclated,
+        "CLOSED" => CaseStatus::Closed,
+        "ARCHIVED" => CaseStatus::Archived,
+        _ => {
+            return Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "invalid_case_status",
+                message: String::from("invalid case status in database"),
+            });
+        }
+    };
+    if !current_status.can_transition_to(payload.status) {
+        return Err(ApiError {
+            status: StatusCode::CONFLICT,
+            error: "invalid_satatus_transition",
+            message: String::from("case cannot transition to be requested status"),
+        });
+    }
+
+    let next_status = match payload.status {
+        CaseStatus::Open => "OPEN",
+        CaseStatus::UnderReview => "UNDER_REVIEW",
+        CaseStatus::Esclated => "ESCLATED",
+        CaseStatus::Closed => "CLOSED",
+        CaseStatus::Archived => "ARCHIVED",
+    };
+
+    let row = sqlx::query_as::<_, CaseRow>(
+        r#"
+        UPDATE cases
+        SET status = $1,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING id, title, risk_score, status, created_at, updated_at
+        "#,
+    )
+    .bind(next_status)
+    .bind(id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|error| {
+        eprintln!("Database error while updating case status: {error}");
+
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "database_error",
+            message: String::from("failed to update case status"),
+        }
+    })?;
+
+    Ok(Json(CaseResponse::try_from(row)?))
+}
+
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
@@ -458,6 +560,7 @@ pub fn create_router(state: AppState) -> Router {
             "/cases/{id}",
             get(get_case).patch(update_case).delete(delete_case),
         )
+        .route("/cases/{id}/status", patch(update_case_status))
         .route("/about", get(about))
         .route("/health/database", get(database_health))
         .with_state(state)

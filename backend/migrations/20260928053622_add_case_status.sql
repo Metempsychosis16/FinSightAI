@@ -4,7 +4,7 @@ CHECK (
     status IN (
         'OPEN',
         'UNDER_REVIEW',
-        'ESCALATED',
+        'ESCLATED',
         'CLOSED',
         'ARCHIVED'
     )
