@@ -3,6 +3,8 @@ use crate::models::investigator::Investigator;
 use crate::models::status::CaseStatus;
 use crate::models::validation::Validate;
 
+pub mod case_service;
+
 pub fn display_status(status: &CaseStatus) {
     match status {
         CaseStatus::Open => {
@@ -12,8 +14,8 @@ pub fn display_status(status: &CaseStatus) {
         CaseStatus::UnderReview => {
             println!("Investigation in progress.");
         }
-        CaseStatus::Esclated => {
-            println!("Escalted to senior Investigation");
+        CaseStatus::Escalated => {
+            println!("Escaalted to senior Investigation");
         }
 
         CaseStatus::Closed => {
@@ -40,7 +42,7 @@ pub fn process_case(case: &Case) {
             println!("Collect financial evidence");
         }
 
-        CaseStatus::Esclated => {
+        CaseStatus::Escalated => {
             println!("Notify senior investigator");
         }
 

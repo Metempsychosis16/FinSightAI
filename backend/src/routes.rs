@@ -1,4 +1,6 @@
+use crate::models::case_response::{CaseResponse, CaseResponseError, CaseRow};
 use crate::models::status::CaseStatus;
+use crate::services::case_service::{CaseService, CaseServiceError};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -50,28 +52,6 @@ struct UpdateCaseRequest {
     risk_score: Option<u8>,
 }
 
-#[derive(Serialize)]
-
-struct CaseResponse {
-    id: i64,
-    title: String,
-    risk_score: i16,
-    status: CaseStatus,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-#[derive(sqlx::FromRow)]
-
-struct CaseRow {
-    id: i64,
-    title: String,
-    risk_score: i16,
-    status: String,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
 struct ApiError {
     status: StatusCode,
     error: &'static str,
@@ -90,36 +70,6 @@ async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
         status: "Healthy",
         service: state.app_name.clone(),
     })
-}
-
-impl TryFrom<CaseRow> for CaseResponse {
-    type Error = ApiError;
-
-    fn try_from(row: CaseRow) -> Result<Self, Self::Error> {
-        let status = match row.status.as_str() {
-            "OPEN" => CaseStatus::Open,
-            "UNDER_REVIEW" => CaseStatus::UnderReview,
-            "ESCLATED" => CaseStatus::Esclated,
-            "CLOSED" => CaseStatus::Closed,
-            "ARCHIVED" => CaseStatus::Archived,
-            _ => {
-                return Err(ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    error: "invalid_case_status",
-                    message: String::from("invalid case status in database"),
-                });
-            }
-        };
-
-        Ok(Self {
-            id: row.id,
-            title: row.title,
-            risk_score: row.risk_score,
-            status,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-    }
 }
 
 async fn create_case(
@@ -206,7 +156,7 @@ async fn list_high_risk_cases(
 ) -> Result<Json<Vec<CaseResponse>>, ApiError> {
     let cases = sqlx::query_as::<_, CaseRow>(
         r#"
-        SELECT id,title,risk_score,created_at
+        SELECT id,title,risk_score,status,created_at,updated_at
         FROM cases
         WHERE risk_score>= 80
         ORDER BY created_at DESC
@@ -466,89 +416,59 @@ async fn update_case_status(
             message: String::from("case id must be greater than 0"),
         });
     }
-    let current_status = sqlx::query_scalar::<_, String>(
-        r#"
-        SELECT status
-        FROM cases
-        WHERE id=$1
-        "#,
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|error| {
-        eprintln!("Database error while retrieving case status: {error}");
-        ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            error: "database_error",
-            message: String::from("failed to retrieve case"),
-        }
-    })?;
 
-    let current_status = match current_status {
-        Some(status) => status,
-        None => {
-            return Err(ApiError {
-                status: StatusCode::NOT_FOUND,
-                error: "case not found",
-                message: String::from("case not found"),
-            });
+    let service = CaseService::new(&state.db);
+
+    let row = service
+        .update_status(id, payload.status)
+        .await
+        .map_err(map_case_service_error)?;
+
+    Ok(Json(CaseResponse::try_from(row)?))
+}
+
+fn map_case_service_error(error: CaseServiceError) -> ApiError {
+    match error {
+        CaseServiceError::Database(error) => {
+            eprintln!("Database error in case service: {error}");
+
+            ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("failed to update case status"),
+            }
         }
-    };
-    let current_status = match current_status.as_str() {
-        "OPEN" => CaseStatus::Open,
-        "UNDER_REVIEW" => CaseStatus::UnderReview,
-        "ESCLATED" => CaseStatus::Esclated,
-        "CLOSED" => CaseStatus::Closed,
-        "ARCHIVED" => CaseStatus::Archived,
-        _ => {
-            return Err(ApiError {
+
+        CaseServiceError::NotFound => ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("case not found"),
+        },
+
+        CaseServiceError::InvalidStoredStatus => ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "invalid_case_status",
+            message: String::from("invalid case status in database"),
+        },
+
+        CaseServiceError::InvalidTransition => ApiError {
+            status: StatusCode::CONFLICT,
+            error: "invalid_status_transition",
+            message: String::from("case cannot transition to the requested status"),
+        },
+    }
+}
+
+impl From<CaseResponseError> for ApiError {
+    fn from(error: CaseResponseError) -> Self {
+        match error {
+            CaseResponseError::InvalidStatus => Self {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 error: "invalid_case_status",
                 message: String::from("invalid case status in database"),
-            });
+            },
         }
-    };
-    if !current_status.can_transition_to(payload.status) {
-        return Err(ApiError {
-            status: StatusCode::CONFLICT,
-            error: "invalid_satatus_transition",
-            message: String::from("case cannot transition to be requested status"),
-        });
     }
-
-    let next_status = match payload.status {
-        CaseStatus::Open => "OPEN",
-        CaseStatus::UnderReview => "UNDER_REVIEW",
-        CaseStatus::Esclated => "ESCLATED",
-        CaseStatus::Closed => "CLOSED",
-        CaseStatus::Archived => "ARCHIVED",
-    };
-
-    let row = sqlx::query_as::<_, CaseRow>(
-        r#"
-        UPDATE cases
-        SET status = $1,
-            updated_at = NOW()
-        WHERE id = $2
-        RETURNING id, title, risk_score, status, created_at, updated_at
-        "#,
-    )
-    .bind(next_status)
-    .bind(id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|error| {
-        eprintln!("Database error while updating case status: {error}");
-
-        ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            error: "database_error",
-            message: String::from("failed to update case status"),
-        }
-    })?;
-
-    Ok(Json(CaseResponse::try_from(row)?))
 }
 
 pub fn create_router(state: AppState) -> Router {
