@@ -1,5 +1,6 @@
 mod config;
 mod models;
+mod repositories;
 mod routes;
 mod services;
 mod utils;

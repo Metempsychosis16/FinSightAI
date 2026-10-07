@@ -58,6 +58,38 @@ struct ApiError {
     message: String,
 }
 
+fn map_case_service_error(error: CaseServiceError) -> ApiError {
+    match error {
+        CaseServiceError::Database(error) => {
+            eprintln!("Database error in case service: {error}");
+
+            ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("failed to update case status"),
+            }
+        }
+
+        CaseServiceError::NotFound => ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("case not found"),
+        },
+
+        CaseServiceError::InvalidStoredStatus => ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "invalid_case_status",
+            message: String::from("invalid case status in database"),
+        },
+
+        CaseServiceError::InvalidTransition => ApiError {
+            status: StatusCode::CONFLICT,
+            error: "invalid_status_transition",
+            message: String::from("case cannot transition to the requested status"),
+        },
+    }
+}
+
 async fn about() -> Json<AboutResponse> {
     Json(AboutResponse {
         name: "Finsight AI",
@@ -425,38 +457,6 @@ async fn update_case_status(
         .map_err(map_case_service_error)?;
 
     Ok(Json(CaseResponse::try_from(row)?))
-}
-
-fn map_case_service_error(error: CaseServiceError) -> ApiError {
-    match error {
-        CaseServiceError::Database(error) => {
-            eprintln!("Database error in case service: {error}");
-
-            ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                error: "database_error",
-                message: String::from("failed to update case status"),
-            }
-        }
-
-        CaseServiceError::NotFound => ApiError {
-            status: StatusCode::NOT_FOUND,
-            error: "case_not_found",
-            message: String::from("case not found"),
-        },
-
-        CaseServiceError::InvalidStoredStatus => ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            error: "invalid_case_status",
-            message: String::from("invalid case status in database"),
-        },
-
-        CaseServiceError::InvalidTransition => ApiError {
-            status: StatusCode::CONFLICT,
-            error: "invalid_status_transition",
-            message: String::from("case cannot transition to the requested status"),
-        },
-    }
 }
 
 impl From<CaseResponseError> for ApiError {
