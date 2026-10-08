@@ -1,5 +1,10 @@
 use crate::models::case_response::{CaseResponse, CaseResponseError, CaseRow};
 use crate::models::status::CaseStatus;
+
+use crate::models::validation::Validate;
+
+use crate::repositories::error::RepositoryError;
+
 use crate::services::case_service::{CaseService, CaseServiceError};
 use axum::{
     Json, Router,
@@ -45,11 +50,41 @@ struct CreateCaseRequest {
     risk_score: u8,
 }
 
+impl Validate for CreateCaseRequest {
+    fn validate(&self) -> Result<(), String> {
+        if self.title.trim().is_empty() {
+            return Err(String::from("case title cannot be empty"));
+        }
+
+        if !(0..=100).contains(&self.risk_score) {
+            return Err(String::from("risk score must be between 0 and 100"));
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 
 struct UpdateCaseRequest {
     title: Option<String>,
     risk_score: Option<u8>,
+}
+
+impl Validate for UpdateCaseRequest {
+    fn validate(&self) -> Result<(), String> {
+        if let Some(title) = &self.title {
+            if title.trim().is_empty() {
+                return Err(String::from("case title cannot be empty"));
+            }
+        }
+        if let Some(risk_score) = self.risk_score {
+            if risk_score > 100 {
+                return Err(String::from("risk score must be between 0 and 100"));
+            }
+        }
+        Ok(())
+    }
 }
 
 struct ApiError {
@@ -60,7 +95,7 @@ struct ApiError {
 
 fn map_case_service_error(error: CaseServiceError) -> ApiError {
     match error {
-        CaseServiceError::Database(error) => {
+        CaseServiceError::Repository(RepositoryError::Database(error)) => {
             eprintln!("Database error in case service: {error}");
 
             ApiError {
@@ -108,13 +143,11 @@ async fn create_case(
     State(state): State<AppState>,
     Json(payload): Json<CreateCaseRequest>,
 ) -> Result<(StatusCode, Json<CaseResponse>), ApiError> {
-    if payload.title.trim().is_empty() {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            error: "validation_error",
-            message: String::from("title cannot be empty"),
-        });
-    }
+    payload.validate().map_err(|message| ApiError {
+        status: StatusCode::BAD_REQUEST,
+        error: "validation_error",
+        message,
+    })?;
 
     if payload.title.trim().len() < 5 {
         return Err(ApiError {
@@ -262,13 +295,11 @@ async fn update_case(
         });
     }
 
-    if payload.title.is_none() && payload.risk_score.is_none() {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            error: "validation error",
-            message: String::from("at least one field must be provided"),
-        });
-    }
+    payload.validate().map_err(|message| ApiError {
+        status: StatusCode::BAD_REQUEST,
+        error: "validation error",
+        message,
+    })?;
 
     if let Some(title) = &payload.title {
         if title.trim().is_empty() {

@@ -1,11 +1,12 @@
 use crate::models::case_response::CaseRow;
 use crate::models::status::CaseStatus;
 use crate::repositories::case_repository::CaseRepository;
+use crate::repositories::error::RepositoryError;
 use sqlx::PgPool;
 
 #[derive(Debug)]
 pub enum CaseServiceError {
-    Database(sqlx::Error),
+    Repository(RepositoryError),
     NotFound,
     InvalidStoredStatus,
     InvalidTransition,
@@ -31,7 +32,7 @@ impl<'a> CaseService<'a> {
             .repository
             .find_status(case_id)
             .await
-            .map_err(CaseServiceError::Database)?;
+            .map_err(CaseServiceError::Repository)?;
 
         let current_status = match current_status {
             Some(status) => {
@@ -49,7 +50,7 @@ impl<'a> CaseService<'a> {
             .repository
             .update_status(case_id, next_status.as_str())
             .await
-            .map_err(CaseServiceError::Database)?;
+            .map_err(CaseServiceError::Repository)?;
 
         Ok(row)
     }

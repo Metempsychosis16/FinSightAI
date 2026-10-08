@@ -1,4 +1,5 @@
 use crate::models::case_response::CaseRow;
+use crate::repositories::error::RepositoryError;
 use sqlx::PgPool;
 
 pub struct CaseRepository<'a> {
@@ -10,7 +11,7 @@ impl<'a> CaseRepository<'a> {
         Self { db }
     }
 
-    pub async fn find_status(&self, case_id: i64) -> Result<Option<String>, sqlx::Error> {
+    pub async fn find_status(&self, case_id: i64) -> Result<Option<String>, RepositoryError> {
         sqlx::query_scalar::<_, String>(
             r#"
             SELECT status
@@ -21,9 +22,14 @@ impl<'a> CaseRepository<'a> {
         .bind(case_id)
         .fetch_optional(self.db)
         .await
+        .map_err(RepositoryError::Database)
     }
 
-    pub async fn update_status(&self, case_id: i64, status: &str) -> Result<CaseRow, sqlx::Error> {
+    pub async fn update_status(
+        &self,
+        case_id: i64,
+        status: &str,
+    ) -> Result<CaseRow, RepositoryError> {
         sqlx::query_as::<_, CaseRow>(
             r#"
             UPDATE cases
@@ -37,5 +43,6 @@ impl<'a> CaseRepository<'a> {
         .bind(case_id)
         .fetch_one(self.db)
         .await
+        .map_err(RepositoryError::Database)
     }
 }
