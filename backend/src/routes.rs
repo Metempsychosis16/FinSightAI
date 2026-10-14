@@ -96,7 +96,11 @@ struct ApiError {
 fn map_case_service_error(error: CaseServiceError) -> ApiError {
     match error {
         CaseServiceError::Repository(RepositoryError::Database(error)) => {
-            eprintln!("Database error in case service: {error}");
+            tracing::error!(
+                error_category = "database_error",
+                error = %error,
+                "Case status update failed"
+            );
 
             ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,

@@ -5,19 +5,35 @@ mod routes;
 mod services;
 mod utils;
 
+use crate::config::Config;
+
 use axum::serve;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 
+fn init_logging() {
+    use tracing_subscriber::{EnvFilter, fmt};
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .compact()
+        .init();
+}
+
 #[tokio::main]
 
-async fn main() {
-    dotenvy::dotenv().ok();
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_logging();
 
-    let db = PgPool::connect(&database_url)
-        .await
-        .expect("Failed to connect to PostgreqSql");
+    tracing::info!("Starting Finsight AI");
+
+    tracing::debug!("Debug logging is enabled");
+
+    let config = Config::from_env().map_err(std::io::Error::other)?;
+    let db = PgPool::connect(&config.database_url).await?;
 
     let state = routes::AppState {
         app_name: String::from("Finsight AI"),
@@ -26,9 +42,11 @@ async fn main() {
     };
     let app = routes::create_router(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let address = format!("0.0.0.0:{}", config.port);
 
-    println!("Finsigh AI server running on http://localhost:3000");
+    let listener = TcpListener::bind(&address).await?;
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }

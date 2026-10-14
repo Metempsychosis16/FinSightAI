@@ -1,4 +1,16 @@
+
+
+
+
+
+
+# Local environment files and secrets
 .env
+.env.*
+
+# Allow the safe configuration template
+!.env.example
+
 
 /target
 
