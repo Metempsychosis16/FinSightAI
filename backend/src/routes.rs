@@ -5,6 +5,8 @@ use crate::models::validation::Validate;
 
 use crate::repositories::error::RepositoryError;
 
+use tower_http::trace::TraceLayer;
+
 use crate::services::case_service::{CaseService, CaseServiceError};
 use axum::{
     Json, Router,
@@ -510,6 +512,15 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/cases", get(list_cases).post(create_case))
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
+                tracing::info_span!(
+                    "http_request",
+                    method=%request.method(),
+                    path=%request.uri().path(),
+                )
+            }),
+        )
         .route("/cases/high-risk", get(list_high_risk_cases))
         .route(
             "/cases/{id}",
