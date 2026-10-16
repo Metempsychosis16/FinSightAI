@@ -13,7 +13,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, patch, post},
+    routing::{get, patch},
 };
 
 use chrono::{DateTime, Utc};

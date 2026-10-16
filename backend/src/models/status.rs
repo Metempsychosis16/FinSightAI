@@ -59,29 +59,26 @@ impl CaseStatus {
 }
 
 #[test]
-fn open_converts_to_database_value() {
-    assert_eq!(CaseStatus::Open.as_str(), "OPEN");
+fn open_can_transition_to_under_review() {
+    assert!(CaseStatus::Open.can_transition_to(CaseStatus::UnderReview));
 }
 
 #[test]
-fn under_review_converts_to_database_value() {
-    assert_eq!(CaseStatus::UnderReview.as_str(), "UNDER_REVIEW");
+fn open_cannot_transition_directly_to_closed() {
+    assert!(!CaseStatus::Open.can_transition_to(CaseStatus::Closed));
 }
 
 #[test]
-fn database_value_converts_to_open() {
-    assert_eq!(CaseStatus::from_str("OPEN"), Ok(CaseStatus::Open));
+fn under_review_can_transition_to_escalated() {
+    assert!(CaseStatus::UnderReview.can_transition_to(CaseStatus::Escalated));
 }
 
 #[test]
-fn database_value_converts_to_under_review() {
-    assert_eq!(
-        CaseStatus::from_str("UNDER_REVIEW"),
-        Ok(CaseStatus::UnderReview)
-    );
+fn escalated_can_transition_to_closed() {
+    assert!(CaseStatus::Escalated.can_transition_to(CaseStatus::Closed));
 }
 
 #[test]
-fn invalid_database_status_is_rejected() {
-    assert!(CaseStatus::from_str("BANANA").is_err());
+fn archived_cannot_transition_to_open() {
+    assert!(!CaseStatus::Archived.can_transition_to(CaseStatus::Open));
 }
