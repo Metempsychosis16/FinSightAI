@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct User {
     pub id: i64,
     pub email: String,

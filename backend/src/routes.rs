@@ -8,18 +8,27 @@ use crate::repositories::error::RepositoryError;
 use tower_http::trace::TraceLayer;
 
 use crate::services::case_service::{CaseService, CaseServiceError};
+
+use crate::models::user_response::UserResponse;
+use crate::services::registration_service::{RegistrationError, register_user};
+
 use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, patch},
+    routing::{get, patch, post},
 };
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
+#[derive(Debug, serde::Deserialize)]
+pub struct RegisterRequest {
+    pub email: String,
+    pub password: String,
+}
 #[derive(Clone)]
 pub struct AppState {
     pub app_name: String,
@@ -50,6 +59,43 @@ struct AboutResponse {
 struct CreateCaseRequest {
     title: String,
     risk_score: u8,
+}
+
+pub async fn register(
+    State(state): State<AppState>,
+    Json(payload): Json<RegisterRequest>,
+) -> impl IntoResponse {
+    match register_user(&state.db, &payload.email, &payload.password).await {
+        Ok(user) => {
+            let response = UserResponse::from(user);
+
+            (StatusCode::CREATED, Json(response)).into_response()
+        }
+
+        Err(RegistrationError::InvalidEmail) | Err(RegistrationError::WeakPassword) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Invalid registration input"
+            })),
+        )
+            .into_response(),
+
+        Err(RegistrationError::DuplicateEmail) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": "An account with this email already exists"
+            })),
+        )
+            .into_response(),
+
+        Err(RegistrationError::PasswordHashingFailed) | Err(RegistrationError::Database(_)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": "Registration could not be completed"
+            })),
+        )
+            .into_response(),
+    }
 }
 
 impl Validate for CreateCaseRequest {
@@ -511,6 +557,7 @@ impl From<CaseResponseError> for ApiError {
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
+        .route("/auth/register", post(register))
         .route("/cases", get(list_cases).post(create_case))
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {

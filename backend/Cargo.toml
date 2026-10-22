@@ -17,5 +17,6 @@ dotenvy = "0.15"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tower-http = { version = "0.7.1", features = ["trace"] }
+argon2 = "0.5"
 
 
