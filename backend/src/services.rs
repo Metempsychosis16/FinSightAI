@@ -4,6 +4,7 @@ use crate::models::status::CaseStatus;
 use crate::models::validation::Validate;
 
 pub mod case_service;
+pub mod login_service;
 pub mod password_service;
 pub mod registration_service;
 

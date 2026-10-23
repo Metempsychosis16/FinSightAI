@@ -8,6 +8,7 @@ pub struct Config {
     pub database_url: String,
     pub port: u16,
     pub app_env: String,
+    pub jwt_secret: String,
 }
 
 impl Config {
@@ -24,10 +25,18 @@ impl Config {
 
         let app_env = env::var("APP_ENV").unwrap_or_else(|_| String::from("development"));
 
+        let jwt_secret =
+            env::var("JWT_SECRET").map_err(|_| String::from("JWT_SECRET is not set"))?;
+
+        if jwt_secret.as_bytes().len() < 32 {
+            return Err(String::from("JWT_SECRET must be at least 32 bytes"));
+        }
+
         Ok(Self {
             database_url,
             port,
             app_env,
+            jwt_secret,
         })
     }
 }

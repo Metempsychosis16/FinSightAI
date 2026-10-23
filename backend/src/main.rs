@@ -1,3 +1,4 @@
+pub mod auth;
 mod config;
 mod models;
 mod repositories;
@@ -37,8 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = routes::AppState {
         app_name: String::from("Finsight AI"),
-        environment: String::from("development"),
+        environment: config.app_env.clone(),
         db,
+        jwt_secret: config.jwt_secret,
     };
     let app = routes::create_router(state);
 

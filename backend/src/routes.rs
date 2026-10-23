@@ -7,10 +7,20 @@ use crate::repositories::error::RepositoryError;
 
 use tower_http::trace::TraceLayer;
 
+use crate::models::role::Role;
+
 use crate::services::case_service::{CaseService, CaseServiceError};
+
+use crate::auth::middleware::require_auth;
+use axum::middleware::from_fn_with_state;
 
 use crate::models::user_response::UserResponse;
 use crate::services::registration_service::{RegistrationError, register_user};
+
+use crate::auth::jwt::create_token;
+use crate::services::login_service::{LoginError, authenticate_user};
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     Json, Router,
@@ -29,11 +39,26 @@ pub struct RegisterRequest {
     pub email: String,
     pub password: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoginResponse {
+    pub access_token: String,
+    pub token_type: &'static str,
+    pub expires_in: u64,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub app_name: String,
     pub environment: String,
     pub db: PgPool,
+    pub jwt_secret: String,
 }
 
 #[derive(Deserialize)]
@@ -110,6 +135,102 @@ impl Validate for CreateCaseRequest {
 
         Ok(())
     }
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> impl IntoResponse {
+    let user = match authenticate_user(&state.db, &payload.email, &payload.password).await {
+        Ok(user) => user,
+
+        Err(LoginError::InvalidCredentials) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": "Invalid email or password"
+                })),
+            )
+                .into_response();
+        }
+
+        Err(LoginError::Database(error)) => {
+            tracing::error!(
+                error = %error,
+                "Login database operation failed"
+            );
+
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Login could not be completed"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs() as usize,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Login could not be completed"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let expires_in = 900_u64;
+
+    let role = match Role::parse(&user.role) {
+        Some(role) => role,
+        None => {
+            tracing::error!(user_id = user.id, "User has an unsupported role");
+
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Login could not be completed"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let token = match create_token(
+        user.id,
+        role.as_str(),
+        &state.jwt_secret,
+        now,
+        expires_in as usize,
+    ) {
+        Ok(token) => token,
+
+        Err(_) => {
+            tracing::error!("JWT creation failed");
+
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Login could not be completed"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(LoginResponse {
+            access_token: token,
+            token_type: "Bearer",
+            expires_in,
+        }),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -555,26 +676,33 @@ impl From<CaseResponseError> for ApiError {
 }
 
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
-        .route("/health", get(health_check))
-        .route("/auth/register", post(register))
+    let protected_routes = Router::new()
         .route("/cases", get(list_cases).post(create_case))
-        .layer(
-            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
-                tracing::info_span!(
-                    "http_request",
-                    method=%request.method(),
-                    path=%request.uri().path(),
-                )
-            }),
-        )
         .route("/cases/high-risk", get(list_high_risk_cases))
         .route(
             "/cases/{id}",
             get(get_case).patch(update_case).delete(delete_case),
         )
         .route("/cases/{id}/status", patch(update_case_status))
+        .route_layer(from_fn_with_state(state.jwt_secret.clone(), require_auth));
+
+    Router::new()
+        // Public routes
+        .route("/health", get(health_check))
+        .route("/auth/register", post(register))
+        .route("/auth/login", post(login))
         .route("/about", get(about))
         .route("/health/database", get(database_health))
+        // Protected case routes
+        .merge(protected_routes)
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
+                tracing::info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    path = %request.uri().path(),
+                )
+            }),
+        )
         .with_state(state)
 }
