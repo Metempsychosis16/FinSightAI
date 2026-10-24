@@ -16,6 +16,11 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         && !segments[1].is_empty()
         && segments[2] == "status";
 
+    let is_case_investigator = segments.len() == 3
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "investigator";
+
     match (method.as_str(), path) {
         ("GET", "/cases") => true,
         ("GET", "/cases/high-risk") => true,
@@ -28,6 +33,10 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         }
 
         _ if is_case_item && *method == Method::DELETE => role == Role::Admin,
+
+        _ if is_case_investigator && *method == Method::PATCH => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
 
         _ => false,
     }
@@ -98,4 +107,25 @@ mod tests {
             "/cases"
         ));
     }
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_assign_cases() {
+    assert!(!is_authorized(
+        Role::Investigator,
+        &Method::PATCH,
+        "/cases/42/investigator"
+    ));
+
+    assert!(is_authorized(
+        Role::SeniorInvestigator,
+        &Method::PATCH,
+        "/cases/42/investigator"
+    ));
+
+    assert!(is_authorized(
+        Role::Admin,
+        &Method::PATCH,
+        "/cases/42/investigator"
+    ));
 }

@@ -3,6 +3,7 @@ use crate::models::investigator::Investigator;
 use crate::models::status::CaseStatus;
 use crate::models::validation::Validate;
 
+pub mod case_assignment_service;
 pub mod case_service;
 pub mod login_service;
 pub mod password_service;

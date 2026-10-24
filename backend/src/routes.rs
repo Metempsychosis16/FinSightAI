@@ -20,6 +20,8 @@ use crate::services::registration_service::{RegistrationError, register_user};
 use crate::auth::jwt::create_token;
 use crate::services::login_service::{LoginError, authenticate_user};
 
+use crate::services::case_assignment_service::{CaseAssignmentService, CaseAssignmentServiceError};
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -84,6 +86,18 @@ struct AboutResponse {
 struct CreateCaseRequest {
     title: String,
     risk_score: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct AssignInvestigatorRequest {
+    investigator_id: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct AssignInvestigatorResponse {
+    case_id: i64,
+    investigator_id: i64,
+    message: &'static str,
 }
 
 pub async fn register(
@@ -675,6 +689,60 @@ impl From<CaseResponseError> for ApiError {
     }
 }
 
+async fn assign_investigator(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+    Json(payload): Json<AssignInvestigatorRequest>,
+) -> Result<(StatusCode, Json<AssignInvestigatorResponse>), ApiError> {
+    if case_id <= 0 || payload.investigator_id <= 0 {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "validation_error",
+            message: String::from("case_id and investigator_id must be greater than zero"),
+        });
+    }
+
+    let service = CaseAssignmentService::new(&state.db);
+
+    match service.assign(case_id, payload.investigator_id).await {
+        Ok(()) => Ok((
+            StatusCode::OK,
+            Json(AssignInvestigatorResponse {
+                case_id,
+                investigator_id: payload.investigator_id,
+                message: "Investigator assigned successfully",
+            }),
+        )),
+
+        Err(CaseAssignmentServiceError::CaseNotFound) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("Case not found"),
+        }),
+
+        Err(CaseAssignmentServiceError::InvestigatorNotAssignable) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "investigator_not_assignable",
+            message: String::from("Investigator not found or account is inactive"),
+        }),
+
+        Err(CaseAssignmentServiceError::Database(error)) => {
+            tracing::error!(
+                error = %error,
+                case_id,
+                investigator_id = payload.investigator_id,
+                "Case investigator assignment failed"
+            );
+
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("Failed to assign investigator"),
+            })
+        }
+    }
+}
+
 pub fn create_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/cases", get(list_cases).post(create_case))
@@ -684,6 +752,7 @@ pub fn create_router(state: AppState) -> Router {
             get(get_case).patch(update_case).delete(delete_case),
         )
         .route("/cases/{id}/status", patch(update_case_status))
+        .route("/cases/{id}/investigator", patch(assign_investigator))
         .route_layer(from_fn_with_state(state.jwt_secret.clone(), require_auth));
 
     Router::new()
