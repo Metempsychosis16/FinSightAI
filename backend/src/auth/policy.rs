@@ -25,6 +25,12 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         ("GET", "/cases") => true,
         ("GET", "/cases/high-risk") => true,
         ("POST", "/cases") => true,
+        ("POST", "/transactions") => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+        ("POST", "/transactions/import-csv") => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
 
         _ if is_case_item && *method == Method::GET => true,
 
@@ -128,4 +134,21 @@ fn only_senior_investigators_and_admins_can_assign_cases() {
         &Method::PATCH,
         "/cases/42/investigator"
     ));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_ingest_transactions() {
+    assert!(!is_authorized(
+        Role::Investigator,
+        &Method::POST,
+        "/transactions",
+    ));
+
+    assert!(is_authorized(
+        Role::SeniorInvestigator,
+        &Method::POST,
+        "/transactions",
+    ));
+
+    assert!(is_authorized(Role::Admin, &Method::POST, "/transactions",));
 }

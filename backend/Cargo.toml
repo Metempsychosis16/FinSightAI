@@ -20,3 +20,5 @@ tower-http = { version = "0.7.1", features = ["trace"] }
 argon2 = "0.5"
 
 jsonwebtoken = "9"
+
+csv="1"

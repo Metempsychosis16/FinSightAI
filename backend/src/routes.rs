@@ -9,6 +9,8 @@ use tower_http::trace::TraceLayer;
 
 use crate::models::role::Role;
 
+use crate::services::bulk_transaction_service::{BulkImportError, import_csv};
+
 use crate::services::case_service::{CaseService, CaseServiceError};
 
 use crate::auth::middleware::require_auth;
@@ -35,6 +37,9 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+
+use crate::models::transaction::Transaction;
+use crate::services::transaction_service::{TransactionService, TransactionServiceError};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct RegisterRequest {
@@ -86,6 +91,44 @@ struct AboutResponse {
 struct CreateCaseRequest {
     title: String,
     risk_score: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateTransactionRequest {
+    external_reference: String,
+    amount_minor: i64,
+    currency: String,
+    sender_account: String,
+    recipient_account: String,
+    transaction_type: String,
+    occurred_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+struct TransactionResponse {
+    id: i64,
+    external_reference: String,
+    amount_minor: i64,
+    currency: String,
+    sender_account: String,
+    recipient_account: String,
+    transaction_type: &'static str,
+    occurred_at: DateTime<Utc>,
+}
+
+impl From<Transaction> for TransactionResponse {
+    fn from(transaction: Transaction) -> Self {
+        Self {
+            id: transaction.id,
+            external_reference: transaction.external_reference,
+            amount_minor: transaction.amount_minor,
+            currency: transaction.currency,
+            sender_account: transaction.sender_account,
+            recipient_account: transaction.recipient_account,
+            transaction_type: transaction.transaction_type.as_str(),
+            occurred_at: transaction.occurred_at,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -743,6 +786,95 @@ async fn assign_investigator(
     }
 }
 
+async fn import_transactions_csv(
+    State(state): State<AppState>,
+    body: String,
+) -> Result<
+    (
+        StatusCode,
+        Json<crate::services::bulk_transaction_service::BulkImportReport>,
+    ),
+    ApiError,
+> {
+    match import_csv(&state.db, &body).await {
+        Ok(report) => Ok((StatusCode::OK, Json(report))),
+
+        Err(BulkImportError::FileTooLarge) => Err(ApiError {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+            error: "csv_too_large",
+            message: String::from("CSV file exceeds the 1 MB limit"),
+        }),
+
+        Err(BulkImportError::TooManyRows) => Err(ApiError {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+            error: "too_many_rows",
+            message: String::from("CSV file exceeds the 500-row limit"),
+        }),
+
+        Err(BulkImportError::MissingHeaders(headers)) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "missing_csv_headers",
+            message: format!("Missing required CSV headers: {}", headers.join(", ")),
+        }),
+
+        Err(BulkImportError::InvalidCsv(_)) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "invalid_csv",
+            message: String::from("CSV file or header row is invalid"),
+        }),
+    }
+}
+
+async fn create_transaction(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateTransactionRequest>,
+) -> Result<(StatusCode, Json<TransactionResponse>), ApiError> {
+    let service = TransactionService::new(&state.db);
+
+    match service
+        .ingest(
+            payload.external_reference,
+            payload.amount_minor,
+            payload.currency,
+            payload.sender_account,
+            payload.recipient_account,
+            &payload.transaction_type,
+            payload.occurred_at,
+        )
+        .await
+    {
+        Ok(transaction) => Ok((
+            StatusCode::CREATED,
+            Json(TransactionResponse::from(transaction)),
+        )),
+
+        Err(TransactionServiceError::InvalidInput(message)) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "validation_error",
+            message,
+        }),
+
+        Err(TransactionServiceError::DuplicateReference) => Err(ApiError {
+            status: StatusCode::CONFLICT,
+            error: "duplicate_transaction",
+            message: String::from("A transaction with this external reference already exists"),
+        }),
+
+        Err(TransactionServiceError::Repository(error)) => {
+            tracing::error!(
+                error = ?error,
+                "Transaction ingestion failed"
+            );
+
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "transaction_storage_error",
+                message: String::from("Transaction could not be stored"),
+            })
+        }
+    }
+}
+
 pub fn create_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/cases", get(list_cases).post(create_case))
@@ -753,6 +885,8 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/cases/{id}/status", patch(update_case_status))
         .route("/cases/{id}/investigator", patch(assign_investigator))
+        .route("/transactions", post(create_transaction))
+        .route("/transactions/import-csv", post(import_transactions_csv))
         .route_layer(from_fn_with_state(state.jwt_secret.clone(), require_auth));
 
     Router::new()
