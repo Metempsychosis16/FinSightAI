@@ -21,6 +21,21 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         && !segments[1].is_empty()
         && segments[2] == "investigator";
 
+    let is_case_transaction_link = segments.len() == 3
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "transactions";
+
+    let is_case_evidence = segments.len() == 3
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "evidence";
+    let is_case_evidence_package = segments.len() == 4
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "evidence"
+        && segments[3] == "package";
+
     match (method.as_str(), path) {
         ("GET", "/cases") => true,
         ("GET", "/cases/high-risk") => true,
@@ -41,6 +56,18 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         _ if is_case_item && *method == Method::DELETE => role == Role::Admin,
 
         _ if is_case_investigator && *method == Method::PATCH => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+
+        _ if is_case_transaction_link && *method == Method::POST => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+
+        _ if is_case_evidence && *method == Method::POST => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+
+        _ if is_case_evidence_package && *method == Method::GET => {
             matches!(role, Role::SeniorInvestigator | Role::Admin)
         }
 
@@ -151,4 +178,67 @@ fn only_senior_investigators_and_admins_can_ingest_transactions() {
     ));
 
     assert!(is_authorized(Role::Admin, &Method::POST, "/transactions",));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_link_transactions() {
+    assert!(!is_authorized(
+        Role::Investigator,
+        &Method::POST,
+        "/cases/42/transactions"
+    ));
+
+    assert!(is_authorized(
+        Role::SeniorInvestigator,
+        &Method::POST,
+        "/cases/42/transactions"
+    ));
+
+    assert!(is_authorized(
+        Role::Admin,
+        &Method::POST,
+        "/cases/42/transactions"
+    ));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_create_evidence() {
+    assert!(!is_authorized(
+        Role::Investigator,
+        &Method::POST,
+        "/cases/42/evidence"
+    ));
+
+    assert!(is_authorized(
+        Role::SeniorInvestigator,
+        &Method::POST,
+        "/cases/42/evidence"
+    ));
+
+    assert!(is_authorized(
+        Role::Admin,
+        &Method::POST,
+        "/cases/42/evidence"
+    ));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_export_evidence_packages() {
+    assert!(!is_authorized(
+        Role::Investigator,
+        &Method::GET,
+        "/cases/42/evidence/package"
+    ));
+
+    assert!(is_authorized(
+        Role::SeniorInvestigator,
+        &Method::GET,
+        "/cases/42/evidence/package"
+    ));
+
+    assert!(is_authorized(
+        Role::Admin,
+        &Method::GET,
+        "/cases/42/evidence/package"
+    ));
 }

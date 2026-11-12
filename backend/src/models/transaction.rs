@@ -237,45 +237,45 @@ mod tests {
 
         assert_eq!(TransactionType::parse("unknown"), None);
     }
-}
 
-#[test]
-fn normalizes_reference_currency_and_account_identifiers() {
-    let mut transaction = sample_new_transaction();
+    #[test]
+    fn normalizes_reference_currency_and_account_identifiers() {
+        let mut transaction = sample_new_transaction();
 
-    transaction.external_reference = String::from("  BANK-TXN-001  ");
-    transaction.currency = String::from(" inr ");
-    transaction.sender_account = String::from(" ACCOUNT-100 ");
-    transaction.recipient_account = String::from(" ACCOUNT-200 ");
+        transaction.external_reference = String::from("  BANK-TXN-001  ");
+        transaction.currency = String::from(" inr ");
+        transaction.sender_account = String::from(" ACCOUNT-100 ");
+        transaction.recipient_account = String::from(" ACCOUNT-200 ");
 
-    let transaction = transaction.normalize();
+        let transaction = transaction.normalize();
 
-    assert_eq!(transaction.external_reference, "BANK-TXN-001");
-    assert_eq!(transaction.currency, "INR");
-    assert_eq!(transaction.sender_account, "ACCOUNT-100");
-    assert_eq!(transaction.recipient_account, "ACCOUNT-200");
-    assert!(transaction.validate().is_ok());
-}
+        assert_eq!(transaction.external_reference, "BANK-TXN-001");
+        assert_eq!(transaction.currency, "INR");
+        assert_eq!(transaction.sender_account, "ACCOUNT-100");
+        assert_eq!(transaction.recipient_account, "ACCOUNT-200");
+        assert!(transaction.validate().is_ok());
+    }
 
-#[test]
-fn rejects_fields_that_are_empty_after_normalization() {
-    let mut transaction = sample_new_transaction();
-    transaction.external_reference = String::from("   ");
+    #[test]
+    fn rejects_fields_that_are_empty_after_normalization() {
+        let mut transaction = sample_new_transaction();
+        transaction.external_reference = String::from("   ");
 
-    let transaction = transaction.normalize();
+        let transaction = transaction.normalize();
 
-    assert!(transaction.validate().is_err());
-}
+        assert!(transaction.validate().is_err());
+    }
 
-#[test]
-fn parses_transaction_types_with_whitespace_and_mixed_case() {
-    assert_eq!(
-        TransactionType::parse(" TRANSFER "),
-        Some(TransactionType::Transfer)
-    );
-    assert_eq!(
-        TransactionType::parse("Payment"),
-        Some(TransactionType::Payment)
-    );
-    assert_eq!(TransactionType::parse("unknown"), None);
+    #[test]
+    fn parses_transaction_types_with_whitespace_and_mixed_case() {
+        assert_eq!(
+            TransactionType::parse(" TRANSFER "),
+            Some(TransactionType::Transfer)
+        );
+        assert_eq!(
+            TransactionType::parse("Payment"),
+            Some(TransactionType::Payment)
+        );
+        assert_eq!(TransactionType::parse("unknown"), None);
+    }
 }

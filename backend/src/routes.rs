@@ -5,6 +5,10 @@ use crate::models::validation::Validate;
 
 use crate::repositories::error::RepositoryError;
 
+use crate::auth::jwt::Claims;
+use crate::models::evidence::NewEvidence;
+use crate::services::evidence_service::{EvidenceService, EvidenceServiceError};
+
 use tower_http::trace::TraceLayer;
 
 use crate::models::role::Role;
@@ -24,11 +28,16 @@ use crate::services::login_service::{LoginError, authenticate_user};
 
 use crate::services::case_assignment_service::{CaseAssignmentService, CaseAssignmentServiceError};
 
+use crate::repositories::case_transaction_repository::CaseTransactionRepositoryError;
+use crate::services::case_transaction_service::{
+    CaseTransactionService, CaseTransactionServiceError,
+};
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, patch, post},
@@ -141,6 +150,56 @@ struct AssignInvestigatorResponse {
     case_id: i64,
     investigator_id: i64,
     message: &'static str,
+}
+
+#[derive(Debug, Deserialize)]
+struct LinkTransactionRequest {
+    transaction_id: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct LinkTransactionResponse {
+    case_id: i64,
+    transaction_id: i64,
+    message: &'static str,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateEvidenceRequest {
+    title: String,
+    description: String,
+    evidence_type: String,
+    source_reference: String,
+    sha256_hash: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct EvidenceResponse {
+    id: i64,
+    case_id: i64,
+    title: String,
+    description: String,
+    evidence_type: String,
+    source_reference: String,
+    sha256_hash: Option<String>,
+    collected_by: i64,
+    created_at: DateTime<Utc>,
+}
+
+impl From<crate::models::evidence::Evidence> for EvidenceResponse {
+    fn from(evidence: crate::models::evidence::Evidence) -> Self {
+        Self {
+            id: evidence.id,
+            case_id: evidence.case_id,
+            title: evidence.title,
+            description: evidence.description,
+            evidence_type: evidence.evidence_type,
+            source_reference: evidence.source_reference,
+            sha256_hash: evidence.sha256_hash,
+            collected_by: evidence.collected_by,
+            created_at: evidence.created_at,
+        }
+    }
 }
 
 pub async fn register(
@@ -732,6 +791,216 @@ impl From<CaseResponseError> for ApiError {
     }
 }
 
+async fn link_transaction_to_case(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+    Json(payload): Json<LinkTransactionRequest>,
+) -> Result<(StatusCode, Json<LinkTransactionResponse>), ApiError> {
+    if case_id <= 0 || payload.transaction_id <= 0 {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "invalid_id",
+            message: String::from("case_id and transaction_id must be greater than zero"),
+        });
+    }
+
+    let service = CaseTransactionService::new(&state.db);
+
+    match service.link(case_id, payload.transaction_id).await {
+        Ok(()) => Ok((
+            StatusCode::CREATED,
+            Json(LinkTransactionResponse {
+                case_id,
+                transaction_id: payload.transaction_id,
+                message: "Transaction linked to case successfully",
+            }),
+        )),
+
+        Err(CaseTransactionServiceError::InvalidId) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "invalid_id",
+            message: String::from("case_id and transaction_id must be greater than zero"),
+        }),
+
+        Err(CaseTransactionServiceError::Repository(
+            CaseTransactionRepositoryError::CaseNotFound,
+        )) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("Case not found"),
+        }),
+
+        Err(CaseTransactionServiceError::Repository(
+            CaseTransactionRepositoryError::TransactionNotFound,
+        )) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "transaction_not_found",
+            message: String::from("Transaction not found"),
+        }),
+
+        Err(CaseTransactionServiceError::Repository(
+            CaseTransactionRepositoryError::AlreadyLinked,
+        )) => Err(ApiError {
+            status: StatusCode::CONFLICT,
+            error: "transaction_already_linked",
+            message: String::from("This transaction is already linked to the case"),
+        }),
+
+        Err(CaseTransactionServiceError::Repository(CaseTransactionRepositoryError::Database(
+            error,
+        ))) => {
+            tracing::error!(
+                error = ?error,
+                case_id,
+                transaction_id = payload.transaction_id,
+                "Failed to link transaction to case"
+            );
+
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("Failed to link transaction to case"),
+            })
+        }
+    }
+}
+
+async fn create_evidence(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<CreateEvidenceRequest>,
+) -> Result<(StatusCode, Json<EvidenceResponse>), ApiError> {
+    if case_id <= 0 {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "invalid_case_id",
+            message: String::from("case_id must be greater than zero"),
+        });
+    }
+
+    let collected_by = claims.sub.parse::<i64>().map_err(|_| ApiError {
+        status: StatusCode::UNAUTHORIZED,
+        error: "invalid_user_claim",
+        message: String::from("Authenticated user ID is invalid"),
+    })?;
+
+    let evidence = NewEvidence {
+        case_id,
+        title: payload.title,
+        description: payload.description,
+        evidence_type: payload.evidence_type,
+        source_reference: payload.source_reference,
+        sha256_hash: payload.sha256_hash,
+        collected_by,
+    };
+
+    let service = EvidenceService::new(&state.db);
+
+    match service.create(evidence).await {
+        Err(EvidenceServiceError::CaseNotFound) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("Case not found"),
+        }),
+
+        Err(EvidenceServiceError::Repository(
+            crate::repositories::evidence_repository::EvidenceRepositoryError::CaseNotFound,
+        )) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("Case not found"),
+        }),
+
+        Ok(evidence) => Ok((StatusCode::CREATED, Json(EvidenceResponse::from(evidence)))),
+
+        Err(EvidenceServiceError::InvalidInput(message)) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "validation_error",
+            message,
+        }),
+
+        Err(EvidenceServiceError::Repository(
+            crate::repositories::evidence_repository::EvidenceRepositoryError::Database(error),
+        )) => {
+            // PostgreSQL 23503 means a foreign-key reference does not exist.
+            let is_foreign_key_violation = matches!(
+                &error,
+                sqlx::Error::Database(database_error)
+                    if database_error.code().as_deref() == Some("23503")
+            );
+
+            if is_foreign_key_violation {
+                return Err(ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    error: "related_record_not_found",
+                    message: String::from("The case or authenticated collector does not exist"),
+                });
+            }
+
+            tracing::error!(
+                error = ?error,
+                case_id,
+                collected_by,
+                "Failed to create evidence"
+            );
+
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("Failed to create evidence"),
+            })
+        }
+    }
+}
+
+async fn get_evidence_package(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+) -> Result<Json<crate::models::evidence::EvidencePackage>, ApiError> {
+    let service = EvidenceService::new(&state.db);
+
+    match service.create_package(case_id).await {
+        Err(EvidenceServiceError::Repository(
+            crate::repositories::evidence_repository::EvidenceRepositoryError::CaseNotFound,
+        )) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("Case not found"),
+        }),
+
+        Ok(package) => Ok(Json(package)),
+
+        Err(EvidenceServiceError::InvalidInput(message)) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "validation_error",
+            message,
+        }),
+
+        Err(EvidenceServiceError::CaseNotFound) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("Case not found"),
+        }),
+
+        Err(EvidenceServiceError::Repository(
+            crate::repositories::evidence_repository::EvidenceRepositoryError::Database(error),
+        )) => {
+            tracing::error!(
+                error = ?error,
+                case_id,
+                "Failed to generate evidence package"
+            );
+
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("Failed to generate evidence package"),
+            })
+        }
+    }
+}
+
 async fn assign_investigator(
     State(state): State<AppState>,
     Path(case_id): Path<i64>,
@@ -883,9 +1152,12 @@ pub fn create_router(state: AppState) -> Router {
             "/cases/{id}",
             get(get_case).patch(update_case).delete(delete_case),
         )
+        .route("/cases/{id}/evidence/package", get(get_evidence_package))
+        .route("/cases/{id}/evidence", post(create_evidence))
         .route("/cases/{id}/status", patch(update_case_status))
         .route("/cases/{id}/investigator", patch(assign_investigator))
         .route("/transactions", post(create_transaction))
+        .route("/cases/{id}/transactions", post(link_transaction_to_case))
         .route("/transactions/import-csv", post(import_transactions_csv))
         .route_layer(from_fn_with_state(state.jwt_secret.clone(), require_auth));
 

@@ -1,5 +1,6 @@
 pub mod case;
 pub mod case_response;
+pub mod evidence;
 pub mod investigator;
 pub mod role;
 pub mod status;

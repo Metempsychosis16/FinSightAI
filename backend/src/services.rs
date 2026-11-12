@@ -6,6 +6,8 @@ use crate::models::validation::Validate;
 pub mod bulk_transaction_service;
 pub mod case_assignment_service;
 pub mod case_service;
+pub mod case_transaction_service;
+pub mod evidence_service;
 pub mod login_service;
 pub mod password_service;
 pub mod registration_service;
