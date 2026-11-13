@@ -3,6 +3,11 @@ use crate::models::status::CaseStatus;
 
 use crate::models::validation::Validate;
 
+use crate::models::investigation_dataset::InvestigationDataset;
+use crate::services::investigation_dataset_service::{
+    InvestigationDatasetError, InvestigationDatasetService,
+};
+
 use crate::repositories::error::RepositoryError;
 
 use crate::auth::jwt::Claims;
@@ -13,7 +18,8 @@ use tower_http::trace::TraceLayer;
 
 use crate::models::role::Role;
 
-use crate::services::bulk_transaction_service::{BulkImportError, import_csv};
+use crate::services::bulk_transaction_service::BulkImportError;
+use crate::services::csv_upload_service::{CsvUploadError, CsvUploadService, MAX_UPLOAD_BYTES};
 
 use crate::services::case_service::{CaseService, CaseServiceError};
 
@@ -37,7 +43,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     Json, Router,
-    extract::{Extension, Path, State},
+    extract::{DefaultBodyLimit, Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, patch, post},
@@ -1065,28 +1071,39 @@ async fn import_transactions_csv(
     ),
     ApiError,
 > {
-    match import_csv(&state.db, &body).await {
+    let upload_service = CsvUploadService::new(&state.db);
+
+    match upload_service.process(&body).await {
         Ok(report) => Ok((StatusCode::OK, Json(report))),
 
-        Err(BulkImportError::FileTooLarge) => Err(ApiError {
+        Err(CsvUploadError::FileTooLarge)
+        | Err(CsvUploadError::Processing(BulkImportError::FileTooLarge)) => Err(ApiError {
             status: StatusCode::PAYLOAD_TOO_LARGE,
             error: "csv_too_large",
             message: String::from("CSV file exceeds the 1 MB limit"),
         }),
 
-        Err(BulkImportError::TooManyRows) => Err(ApiError {
+        Err(CsvUploadError::EmptyFile) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "empty_csv",
+            message: String::from("CSV content cannot be empty"),
+        }),
+
+        Err(CsvUploadError::Processing(BulkImportError::TooManyRows)) => Err(ApiError {
             status: StatusCode::PAYLOAD_TOO_LARGE,
             error: "too_many_rows",
             message: String::from("CSV file exceeds the 500-row limit"),
         }),
 
-        Err(BulkImportError::MissingHeaders(headers)) => Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            error: "missing_csv_headers",
-            message: format!("Missing required CSV headers: {}", headers.join(", ")),
-        }),
+        Err(CsvUploadError::Processing(BulkImportError::MissingHeaders(headers))) => {
+            Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                error: "missing_csv_headers",
+                message: format!("Missing required CSV headers: {}", headers.join(", ")),
+            })
+        }
 
-        Err(BulkImportError::InvalidCsv(_)) => Err(ApiError {
+        Err(CsvUploadError::Processing(BulkImportError::InvalidCsv(_))) => Err(ApiError {
             status: StatusCode::BAD_REQUEST,
             error: "invalid_csv",
             message: String::from("CSV file or header row is invalid"),
@@ -1144,6 +1161,56 @@ async fn create_transaction(
     }
 }
 
+async fn get_investigation_dataset(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+) -> Result<Json<InvestigationDataset>, ApiError> {
+    let service = InvestigationDatasetService::new(&state.db);
+
+    match service.build(case_id).await {
+        Ok(dataset) => Ok(Json(dataset)),
+
+        Err(InvestigationDatasetError::InvalidId) => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "invalid_case_id",
+            message: String::from("Case ID must be greater than zero"),
+        }),
+
+        Err(InvestigationDatasetError::NotFound) => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: String::from("Case not found"),
+        }),
+
+        Err(InvestigationDatasetError::InvalidStoredStatus) => {
+            tracing::error!(
+                case_id,
+                "Invalid stored case status in investigation dataset"
+            );
+
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "invalid_case_status",
+                message: String::from("Invalid case status in database"),
+            })
+        }
+
+        Err(InvestigationDatasetError::Database(error)) => {
+            tracing::error!(
+                error = %error,
+                case_id,
+                "Failed to load investigation dataset"
+            );
+
+            Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("Failed to load investigation dataset"),
+            })
+        }
+    }
+}
+
 pub fn create_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/cases", get(list_cases).post(create_case))
@@ -1152,13 +1219,17 @@ pub fn create_router(state: AppState) -> Router {
             "/cases/{id}",
             get(get_case).patch(update_case).delete(delete_case),
         )
+        .route("/cases/{id}/dataset", get(get_investigation_dataset))
         .route("/cases/{id}/evidence/package", get(get_evidence_package))
         .route("/cases/{id}/evidence", post(create_evidence))
         .route("/cases/{id}/status", patch(update_case_status))
         .route("/cases/{id}/investigator", patch(assign_investigator))
         .route("/transactions", post(create_transaction))
         .route("/cases/{id}/transactions", post(link_transaction_to_case))
-        .route("/transactions/import-csv", post(import_transactions_csv))
+        .route(
+            "/transactions/import-csv",
+            post(import_transactions_csv).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
         .route_layer(from_fn_with_state(state.jwt_secret.clone(), require_auth));
 
     Router::new()

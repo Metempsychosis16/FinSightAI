@@ -30,11 +30,17 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         && segments[0] == "cases"
         && !segments[1].is_empty()
         && segments[2] == "evidence";
+
     let is_case_evidence_package = segments.len() == 4
         && segments[0] == "cases"
         && !segments[1].is_empty()
         && segments[2] == "evidence"
         && segments[3] == "package";
+
+    let is_case_dataset = segments.len() == 3
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "dataset";
 
     match (method.as_str(), path) {
         ("GET", "/cases") => true,
@@ -68,6 +74,10 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         }
 
         _ if is_case_evidence_package && *method == Method::GET => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+
+        _ if is_case_dataset && *method == Method::GET => {
             matches!(role, Role::SeniorInvestigator | Role::Admin)
         }
 
@@ -241,4 +251,21 @@ fn only_senior_investigators_and_admins_can_export_evidence_packages() {
         &Method::GET,
         "/cases/42/evidence/package"
     ));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_read_datasets() {
+    use crate::auth::policy::is_authorized;
+    use crate::models::role::Role;
+    use axum::http::Method;
+
+    let path = "/cases/42/dataset";
+
+    assert!(!is_authorized(Role::Investigator, &Method::GET, path,));
+
+    assert!(is_authorized(Role::SeniorInvestigator, &Method::GET, path,));
+
+    assert!(is_authorized(Role::Admin, &Method::GET, path,));
+
+    assert!(!is_authorized(Role::Admin, &Method::POST, path,));
 }

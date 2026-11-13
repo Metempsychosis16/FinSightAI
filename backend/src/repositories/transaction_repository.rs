@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::models::transaction::{NewTransaction, Transaction, TransactionType};
 
@@ -149,6 +149,59 @@ impl<'a> TransactionRepository<'a> {
         .fetch_all(self.db)
         .await
         .map_err(TransactionRepositoryError::Database)?;
+
+        rows.into_iter().map(Transaction::try_from).collect()
+    }
+
+    pub async fn create_many(
+        &self,
+        transactions: &[NewTransaction],
+    ) -> Result<Vec<Transaction>, TransactionRepositoryError> {
+        if transactions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "INSERT INTO transactions (
+                    external_reference,
+                    amount_minor,
+                    currency,
+                    sender_account,
+                    recipient_account,
+                    transaction_type,
+                    occurred_at
+                ) ",
+        );
+
+        query_builder.push_values(transactions, |mut builder, transaction| {
+            builder
+                .push_bind(&transaction.external_reference)
+                .push_bind(transaction.amount_minor)
+                .push_bind(&transaction.currency)
+                .push_bind(&transaction.sender_account)
+                .push_bind(&transaction.recipient_account)
+                .push_bind(transaction.transaction_type.as_str())
+                .push_bind(transaction.occurred_at);
+        });
+
+        query_builder.push(
+            " ON CONFLICT (external_reference) DO NOTHING
+              RETURNING
+                id,
+                external_reference,
+                amount_minor,
+                currency,
+                sender_account,
+                recipient_account,
+                transaction_type,
+                occurred_at",
+        );
+
+        let rows = query_builder
+            .build_query_as::<TransactionRow>()
+            .fetch_all(self.db)
+            .await
+            .map_err(TransactionRepositoryError::Database)?;
 
         rows.into_iter().map(Transaction::try_from).collect()
     }
