@@ -2,6 +2,7 @@ pub mod auth;
 mod config;
 mod models;
 mod repositories;
+mod risk;
 mod routes;
 mod services;
 mod utils;

@@ -42,6 +42,11 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         && !segments[1].is_empty()
         && segments[2] == "dataset";
 
+    let is_case_graph = segments.len() == 3
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "graph";
+
     match (method.as_str(), path) {
         ("GET", "/cases") => true,
         ("GET", "/cases/high-risk") => true,
@@ -78,6 +83,10 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         }
 
         _ if is_case_dataset && *method == Method::GET => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+
+        _ if is_case_graph && *method == Method::GET => {
             matches!(role, Role::SeniorInvestigator | Role::Admin)
         }
 
@@ -268,4 +277,17 @@ fn only_senior_investigators_and_admins_can_read_datasets() {
     assert!(is_authorized(Role::Admin, &Method::GET, path,));
 
     assert!(!is_authorized(Role::Admin, &Method::POST, path,));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_read_transaction_graphs() {
+    let path = "/cases/42/graph";
+
+    assert!(!is_authorized(Role::Investigator, &Method::GET, path));
+
+    assert!(is_authorized(Role::SeniorInvestigator, &Method::GET, path));
+
+    assert!(is_authorized(Role::Admin, &Method::GET, path));
+
+    assert!(!is_authorized(Role::Admin, &Method::POST, path));
 }

@@ -1,5 +1,6 @@
 use crate::models::case_response::{CaseResponse, CaseResponseError, CaseRow};
 use crate::models::status::CaseStatus;
+use crate::models::transaction_graph::TransactionGraph;
 
 use crate::models::validation::Validate;
 
@@ -1211,6 +1212,64 @@ async fn get_investigation_dataset(
     }
 }
 
+async fn get_transaction_graph(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+) -> Result<Json<crate::models::transaction_graph::TransactionGraphResponse>, ApiError> {
+    let service = InvestigationDatasetService::new(&state.db);
+
+    let dataset = match service.build(case_id).await {
+        Ok(dataset) => dataset,
+
+        Err(InvestigationDatasetError::InvalidId) => {
+            return Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                error: "invalid_case_id",
+                message: String::from("Case ID must be greater than zero"),
+            });
+        }
+
+        Err(InvestigationDatasetError::NotFound) => {
+            return Err(ApiError {
+                status: StatusCode::NOT_FOUND,
+                error: "case_not_found",
+                message: String::from("Case not found"),
+            });
+        }
+
+        Err(InvestigationDatasetError::InvalidStoredStatus) => {
+            tracing::error!(
+                case_id,
+                "Invalid stored case status while building transaction graph"
+            );
+
+            return Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "invalid_case_status",
+                message: String::from("Invalid case status in database"),
+            });
+        }
+
+        Err(InvestigationDatasetError::Database(error)) => {
+            tracing::error!(
+                error = %error,
+                case_id,
+                "Failed to load dataset for transaction graph"
+            );
+
+            return Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "database_error",
+                message: String::from("Failed to build transaction graph"),
+            });
+        }
+    };
+
+    let graph = TransactionGraph::from_dataset(&dataset);
+
+    Ok(Json(graph.to_response()))
+}
+
 pub fn create_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/cases", get(list_cases).post(create_case))
@@ -1220,6 +1279,7 @@ pub fn create_router(state: AppState) -> Router {
             get(get_case).patch(update_case).delete(delete_case),
         )
         .route("/cases/{id}/dataset", get(get_investigation_dataset))
+        .route("/cases/{id}/graph", get(get_transaction_graph))
         .route("/cases/{id}/evidence/package", get(get_evidence_package))
         .route("/cases/{id}/evidence", post(create_evidence))
         .route("/cases/{id}/status", patch(update_case_status))

@@ -10,3 +10,7 @@ pub mod user_response;
 pub mod validation;
 
 pub mod investigation_dataset;
+
+pub mod transaction_graph;
+
+pub mod graph_analysis;
