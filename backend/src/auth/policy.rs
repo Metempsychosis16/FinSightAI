@@ -47,6 +47,16 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         && !segments[1].is_empty()
         && segments[2] == "graph";
 
+    let is_case_ai_analysis = segments.len() == 3
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "ai-analysis";
+
+    let is_case_ai_reports = segments.len() == 3
+        && segments[0] == "cases"
+        && !segments[1].is_empty()
+        && segments[2] == "ai-reports";
+
     match (method.as_str(), path) {
         ("GET", "/cases") => true,
         ("GET", "/cases/high-risk") => true,
@@ -87,6 +97,14 @@ pub fn is_authorized(role: Role, method: &Method, path: &str) -> bool {
         }
 
         _ if is_case_graph && *method == Method::GET => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+
+        _ if is_case_ai_analysis && *method == Method::POST => {
+            matches!(role, Role::SeniorInvestigator | Role::Admin)
+        }
+
+        _ if is_case_ai_reports && (*method == Method::GET || *method == Method::POST) => {
             matches!(role, Role::SeniorInvestigator | Role::Admin)
         }
 
@@ -290,4 +308,33 @@ fn only_senior_investigators_and_admins_can_read_transaction_graphs() {
     assert!(is_authorized(Role::Admin, &Method::GET, path));
 
     assert!(!is_authorized(Role::Admin, &Method::POST, path));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_run_ai_analysis() {
+    let path = "/cases/42/ai-analysis";
+
+    assert!(!is_authorized(Role::Investigator, &Method::POST, path));
+
+    assert!(is_authorized(Role::SeniorInvestigator, &Method::POST, path));
+
+    assert!(is_authorized(Role::Admin, &Method::POST, path));
+
+    assert!(!is_authorized(Role::Investigator, &Method::GET, path));
+}
+
+#[test]
+fn only_senior_investigators_and_admins_can_access_ai_reports() {
+    let path = "/cases/42/ai-reports";
+
+    assert!(!is_authorized(Role::Investigator, &Method::POST, path));
+    assert!(!is_authorized(Role::Investigator, &Method::GET, path));
+
+    assert!(is_authorized(Role::SeniorInvestigator, &Method::POST, path));
+    assert!(is_authorized(Role::SeniorInvestigator, &Method::GET, path));
+
+    assert!(is_authorized(Role::Admin, &Method::POST, path));
+    assert!(is_authorized(Role::Admin, &Method::GET, path));
+
+    assert!(!is_authorized(Role::Admin, &Method::DELETE, path));
 }

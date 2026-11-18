@@ -1,3 +1,4 @@
+mod ai;
 pub mod auth;
 mod config;
 mod models;
@@ -9,6 +10,7 @@ mod utils;
 
 use crate::config::Config;
 
+use crate::ai::provider::RequestyProvider;
 use axum::serve;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
@@ -37,11 +39,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env().map_err(std::io::Error::other)?;
     let db = PgPool::connect(&config.database_url).await?;
 
+    let ai_provider = RequestyProvider::from_env().map_err(std::io::Error::other)?;
+
     let state = routes::AppState {
         app_name: String::from("Finsight AI"),
         environment: config.app_env.clone(),
         db,
         jwt_secret: config.jwt_secret,
+        ai_provider,
     };
     let app = routes::create_router(state);
 

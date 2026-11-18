@@ -1,6 +1,19 @@
+use crate::ai::{
+    output::OUTPUT_SCHEMA_VERSION, prompt::PROMPT_VERSION, report::InvestigationReportGenerator,
+};
 use crate::models::case_response::{CaseResponse, CaseResponseError, CaseRow};
 use crate::models::status::CaseStatus;
 use crate::models::transaction_graph::TransactionGraph;
+
+use crate::repositories::ai_report_repository::{
+    AiReportRepository, AiReportRepositoryError, NewAiReport,
+};
+
+use crate::ai::{
+    evidence_collector::EvidenceCollector,
+    investigation_service::{InvestigationAiService, StructuredAnalysisError},
+    provider::RequestyProvider,
+};
 
 use crate::models::validation::Validate;
 
@@ -82,6 +95,8 @@ pub struct AppState {
     pub environment: String,
     pub db: PgPool,
     pub jwt_secret: String,
+
+    pub ai_provider: RequestyProvider,
 }
 
 #[derive(Deserialize)]
@@ -1270,6 +1285,321 @@ async fn get_transaction_graph(
     Ok(Json(graph.to_response()))
 }
 
+async fn run_ai_investigation(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+) -> Result<Json<crate::ai::output::StructuredInvestigationReport>, ApiError> {
+    // 1. Load authoritative case data from PostgreSQL.
+    let dataset_service = InvestigationDatasetService::new(&state.db);
+
+    let dataset = match dataset_service.build(case_id).await {
+        Ok(dataset) => dataset,
+
+        Err(InvestigationDatasetError::InvalidId) => {
+            return Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                error: "invalid_case_id",
+                message: "Case ID must be greater than zero".to_owned(),
+            });
+        }
+
+        Err(InvestigationDatasetError::NotFound) => {
+            return Err(ApiError {
+                status: StatusCode::NOT_FOUND,
+                error: "case_not_found",
+                message: "Case not found".to_owned(),
+            });
+        }
+
+        Err(error) => {
+            tracing::error!(
+                ?error,
+                case_id,
+                "Failed to load investigation data for AI analysis"
+            );
+
+            return Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "investigation_data_error",
+                message: "Could not load investigation data".to_owned(),
+            });
+        }
+    };
+
+    // 2. Collect the facts supplied to the AI.
+    let package = EvidenceCollector::collect(&dataset);
+
+    // 3. Request structured output and validate its references.
+    let ai_service = InvestigationAiService::new(state.ai_provider);
+
+    match ai_service.analyze_structured(&package).await {
+        Ok(report) => Ok(Json(report)),
+
+        Err(error) => {
+            tracing::error!(?error, case_id, "Structured AI investigation failed");
+
+            let (status, error_code, message) = match error {
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::Authentication(_),
+                ) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_provider_authentication_error",
+                    "The AI provider rejected the configured credentials",
+                ),
+
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::RateLimited(_),
+                ) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "ai_provider_rate_limited",
+                    "The AI provider is temporarily rate-limiting requests",
+                ),
+
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::Configuration(_),
+                ) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "ai_provider_configuration_error",
+                    "The AI provider is not configured correctly",
+                ),
+
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::RequestFailed(_),
+                ) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_provider_request_failed",
+                    "The AI provider request failed",
+                ),
+
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::InvalidResponse(_),
+                ) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_provider_invalid_response",
+                    "The AI provider returned an invalid response",
+                ),
+
+                StructuredAnalysisError::InvalidJson(_) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_output_invalid_json",
+                    "The AI provider did not return valid structured JSON",
+                ),
+
+                StructuredAnalysisError::Validation(_) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_output_validation_failed",
+                    "The AI response referenced data outside the supplied investigation",
+                ),
+            };
+
+            Err(ApiError {
+                status,
+                error: error_code,
+                message: message.to_owned(),
+            })
+        }
+    }
+}
+
+fn map_ai_report_repository_error(error: AiReportRepositoryError) -> ApiError {
+    match error {
+        AiReportRepositoryError::CaseNotFound => ApiError {
+            status: StatusCode::NOT_FOUND,
+            error: "case_not_found",
+            message: "Case not found".to_owned(),
+        },
+        AiReportRepositoryError::Database(error) => {
+            tracing::error!(?error, "AI report database operation failed");
+
+            ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "ai_report_database_error",
+                message: "Could not access AI investigation reports".to_owned(),
+            }
+        }
+    }
+}
+
+async fn create_ai_investigation_report(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+    Extension(claims): Extension<Claims>,
+) -> Result<
+    (
+        StatusCode,
+        Json<crate::repositories::ai_report_repository::AiReportRecord>,
+    ),
+    ApiError,
+> {
+    if case_id <= 0 {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "invalid_case_id",
+            message: "Case ID must be greater than zero".to_owned(),
+        });
+    }
+
+    let generated_by = claims.sub.parse::<i64>().map_err(|_| ApiError {
+        status: StatusCode::UNAUTHORIZED,
+        error: "invalid_token_subject",
+        message: "The authenticated user ID is invalid".to_owned(),
+    })?;
+
+    // 1. Load authoritative case data from PostgreSQL.
+    let dataset_service = InvestigationDatasetService::new(&state.db);
+
+    let dataset = match dataset_service.build(case_id).await {
+        Ok(dataset) => dataset,
+        Err(InvestigationDatasetError::InvalidId) => {
+            return Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                error: "invalid_case_id",
+                message: "Case ID must be greater than zero".to_owned(),
+            });
+        }
+        Err(InvestigationDatasetError::NotFound) => {
+            return Err(ApiError {
+                status: StatusCode::NOT_FOUND,
+                error: "case_not_found",
+                message: "Case not found".to_owned(),
+            });
+        }
+        Err(error) => {
+            tracing::error!(?error, case_id, "Failed to load data for AI report");
+
+            return Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                error: "investigation_data_error",
+                message: "Could not load investigation data".to_owned(),
+            });
+        }
+    };
+
+    // 2. Build the evidence package supplied to the AI.
+    let package = EvidenceCollector::collect(&dataset);
+
+    // 3. Generate one structured AI response and retain its metadata.
+    let ai_service = InvestigationAiService::new(state.ai_provider);
+
+    let result = ai_service
+        .analyze_structured_with_metadata(&package)
+        .await
+        .map_err(|error| {
+            tracing::error!(?error, case_id, "AI report generation failed");
+
+            let (status, error_code, message) = match error {
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::Authentication(_),
+                ) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_provider_authentication_error",
+                    "The AI provider rejected the configured credentials",
+                ),
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::RateLimited(_),
+                ) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "ai_provider_rate_limited",
+                    "The AI provider is temporarily rate-limiting requests",
+                ),
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::Configuration(_),
+                ) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "ai_provider_configuration_error",
+                    "The AI provider is not configured correctly",
+                ),
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::RequestFailed(_),
+                ) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_provider_request_failed",
+                    "The AI provider request failed",
+                ),
+                StructuredAnalysisError::Provider(
+                    crate::ai::provider::AiProviderError::InvalidResponse(_),
+                ) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_provider_invalid_response",
+                    "The AI provider returned an invalid response",
+                ),
+                StructuredAnalysisError::InvalidJson(_) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_output_invalid_json",
+                    "The AI provider did not return valid structured JSON",
+                ),
+                StructuredAnalysisError::Validation(_) => (
+                    StatusCode::BAD_GATEWAY,
+                    "ai_output_validation_failed",
+                    "The AI response referenced data outside the supplied investigation",
+                ),
+            };
+
+            ApiError {
+                status,
+                error: error_code,
+                message: message.to_owned(),
+            }
+        })?;
+
+    // 4. Convert the validated structured report into Markdown.
+    let markdown_report = InvestigationReportGenerator::generate(&result.report);
+
+    // 5. Convert the structured report to JSONB-compatible data.
+    let structured_report = serde_json::to_value(&result.report).map_err(|error| {
+        tracing::error!(?error, case_id, "Failed to serialize AI report");
+
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            error: "ai_report_serialization_error",
+            message: "Could not serialize the AI investigation report".to_owned(),
+        }
+    })?;
+
+    // 6. Persist both representations and their generation metadata.
+    let new_report = NewAiReport {
+        case_id,
+        generated_by,
+        provider: result.provider,
+        model: result.model,
+        prompt_version: PROMPT_VERSION.to_owned(),
+        schema_version: OUTPUT_SCHEMA_VERSION.to_owned(),
+        structured_report,
+        markdown_report,
+    };
+
+    let repository = AiReportRepository::new(&state.db);
+
+    let saved_report = repository
+        .create(&new_report)
+        .await
+        .map_err(map_ai_report_repository_error)?;
+
+    Ok((StatusCode::CREATED, Json(saved_report)))
+}
+
+async fn list_ai_investigation_reports(
+    State(state): State<AppState>,
+    Path(case_id): Path<i64>,
+) -> Result<Json<Vec<crate::repositories::ai_report_repository::AiReportRecord>>, ApiError> {
+    if case_id <= 0 {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            error: "invalid_case_id",
+            message: "Case ID must be greater than zero".to_owned(),
+        });
+    }
+
+    let repository = AiReportRepository::new(&state.db);
+
+    let reports = repository
+        .list_by_case(case_id)
+        .await
+        .map_err(map_ai_report_repository_error)?;
+
+    Ok(Json(reports))
+}
+
 pub fn create_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/cases", get(list_cases).post(create_case))
@@ -1278,6 +1608,11 @@ pub fn create_router(state: AppState) -> Router {
             "/cases/{id}",
             get(get_case).patch(update_case).delete(delete_case),
         )
+        .route(
+            "/cases/{id}/ai-reports",
+            get(list_ai_investigation_reports).post(create_ai_investigation_report),
+        )
+        .route("/cases/{id}/ai-analysis", post(run_ai_investigation))
         .route("/cases/{id}/dataset", get(get_investigation_dataset))
         .route("/cases/{id}/graph", get(get_transaction_graph))
         .route("/cases/{id}/evidence/package", get(get_evidence_package))

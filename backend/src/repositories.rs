@@ -1,6 +1,7 @@
 pub mod case_repository;
 pub mod error;
 
+pub mod ai_report_repository;
 pub mod case_assignment_repository;
 pub mod case_transaction_repository;
 pub mod evidence_repository;
