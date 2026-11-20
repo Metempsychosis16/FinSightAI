@@ -1,0 +1,196 @@
+
+.transaction-graph-explorer {
+  padding: 20px;
+}
+
+.graph-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.graph-summary article,
+.graph-metrics article {
+  padding: 15px;
+  border: 1px solid #344258;
+  border-radius: 8px;
+  background: #152238;
+}
+
+.graph-summary span,
+.graph-metrics span {
+  display: block;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.graph-summary strong,
+.graph-metrics strong {
+  display: block;
+  margin-top: 8px;
+  color: #f8fafc;
+  font-size: 20px;
+}
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin-bottom: 15px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.graph-legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.graph-node-legend {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #60a5fa;
+}
+
+.graph-edge-legend {
+  width: 20px;
+  height: 2px;
+  background: #60a5fa;
+}
+
+.graph-canvas {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid #344258;
+  border-radius: 10px;
+  background: #0b1120;
+}
+
+.graph-canvas svg {
+  display: block;
+  width: 100%;
+  min-width: 320px;
+  height: auto;
+}
+
+.graph-relationship {
+  cursor: pointer;
+  outline: none;
+}
+
+.graph-relationship:hover line {
+  stroke: #f59e0b;
+  stroke-width: 4;
+}
+
+.graph-relationship:focus-visible line,
+.graph-account:focus-visible circle:first-child {
+  stroke: #f59e0b;
+  stroke-width: 4;
+}
+
+.graph-account {
+  cursor: pointer;
+  outline: none;
+}
+
+.graph-account:hover circle:first-child {
+  stroke: #f59e0b;
+  stroke-width: 4;
+}
+
+.graph-hint {
+  margin: 14px 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.graph-details {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid #40516b;
+  border-radius: 9px;
+  background: #152238;
+}
+
+.graph-details h3 {
+  margin-bottom: 12px;
+  color: #f8fafc;
+  font-size: 16px;
+}
+
+.graph-details > strong {
+  color: #93c5fd;
+}
+
+.graph-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.graph-details button {
+  margin-top: 14px;
+  padding: 8px 14px;
+  border: 1px solid #40516b;
+  border-radius: 6px;
+  background: transparent;
+  color: #93c5fd;
+  cursor: pointer;
+}
+
+.graph-details button:hover {
+  background: #263248;
+}
+
+.graph-transaction-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.graph-transaction-list article {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #344258;
+  border-radius: 7px;
+}
+
+.graph-transaction-list strong {
+  color: #93c5fd;
+}
+
+.graph-transaction-list span {
+  color: #cbd5e1;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.graph-empty {
+  padding: 30px;
+  border: 1px dashed #40516b;
+  border-radius: 8px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .transaction-graph-explorer {
+    padding: 10px;
+  }
+
+  .graph-canvas {
+    overflow-x: auto;
+  }
+
+  .graph-canvas svg {
+    width: 600px;
+    max-width: none;
+  }
+}
+

@@ -1,0 +1,155 @@
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background:
+    radial-gradient(ellipse at top left, rgba(37, 99, 235, 0.12), transparent 42%),
+    #0b1120;
+}
+
+.login-panel {
+  width: 100%;
+  max-width: 440px;
+  padding: 40px;
+  border: 1px solid #263248;
+  border-radius: 16px;
+  background: #111b2e;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #f8fafc;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.brand-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 10px;
+  background: #2563eb;
+  color: white;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+
+.login-heading {
+  margin: 40px 0 30px;
+}
+
+.eyebrow {
+  margin-bottom: 12px;
+  color: #60a5fa;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+
+.login-heading h1 {
+  margin: 0 0 10px;
+  color: #f8fafc;
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.8px;
+}
+
+.login-description {
+  color: #a6b3c7;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.login-form {
+  display: grid;
+  gap: 20px;
+}
+
+.form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.form-field label {
+  color: #dbe5f2;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.form-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 14px;
+  border: 1px solid #34445d;
+  border-radius: 8px;
+  outline: none;
+  background: #0b1425;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 14px;
+}
+
+.form-field input::placeholder {
+  color: #718096;
+}
+
+.form-field input:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+}
+
+.login-button {
+  margin-top: 4px;
+  padding: 13px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  transition: background 0.2s ease;
+}
+
+.login-button:hover {
+  background: #1d4ed8;
+}
+
+.login-button:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 3px;
+}
+
+.login-message {
+  min-height: 20px;
+  color: #93c5fd;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.login-footer {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #263248;
+  color: #8291a8;
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .login-panel {
+    padding: 28px 22px;
+  }
+}
+
+.login-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
