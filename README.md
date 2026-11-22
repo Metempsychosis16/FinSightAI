@@ -9,7 +9,6 @@ activity investigation, and financial crime case management.
 The platform combines a Rust backend, PostgreSQL persistence, a
 React/TypeScript investigation interface, explainable risk analysis, and
 evidence-grounded AI assistance. It is being developed incrementally as
-part of a 100-day engineering roadmap.
 
 > **Project status:** Core backend, frontend, AI investigation,
 > Docker-based local infrastructure, and an initial blockchain
@@ -24,7 +23,7 @@ part of a 100-day engineering roadmap.
 -   [Architecture](#architecture)
 -   [Security Model](#security-model)
 -   [Blockchain Evidence
-    Integrity](#blockchain-evidence-integrity--day-99-foundation)
+    Integrity](#blockchain evidence integrited
 -   [Project Structure](#project-structure)
 -   [Local Development](#local-development)
 -   [Testing](#testing)
@@ -342,14 +341,13 @@ guarantee that every environment or deployment is currently healthy.
 
 ## Roadmap and Current Status
 
-The project follows a 100-day roadmap. Recent milestones include:
 
--   **Days 85--91:** React and TypeScript frontend.
--   **Days 92--95:** Docker, Docker Compose, production configuration,
+-   ** React and TypeScript frontend.
+-   ** Docker, Docker Compose, production configuration,
     health checks, and observability.
--   **Days 96--98:** Cloud architecture, AWS infrastructure, and
+-   ** Cloud architecture, AWS infrastructure, and
     deployment work.
--   **Days 99--100:** Blockchain evidence integrity and final production
+-   ** Blockchain evidence integrity and final production
     release.
 
 Current outstanding work includes completing and verifying the live
