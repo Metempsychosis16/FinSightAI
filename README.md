@@ -169,7 +169,7 @@ Security practices for development and deployment:
 -   Treat AI-generated output as untrusted until validated against
     supplied evidence.
 
-## Blockchain Evidence Integrity --- Day 99 Foundation
+## Blockchain Evidence Integrity Foundation
 
 An initial Solidity evidence-anchoring contract and Rust SHA-256 utility
 have been added to the repository.
