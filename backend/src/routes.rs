@@ -187,12 +187,12 @@ struct LinkTransactionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateEvidenceRequest {
     title: String,
     description: String,
     evidence_type: String,
     source_reference: String,
-    sha256_hash: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -913,7 +913,7 @@ async fn create_evidence(
         description: payload.description,
         evidence_type: payload.evidence_type,
         source_reference: payload.source_reference,
-        sha256_hash: payload.sha256_hash,
+        sha256_hash: None,
         collected_by,
     };
 

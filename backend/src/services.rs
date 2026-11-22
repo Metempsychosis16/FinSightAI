@@ -11,6 +11,7 @@ pub mod csv_normalization;
 pub mod csv_parser;
 pub mod csv_upload_service;
 pub mod csv_validation;
+pub mod evidence_integrity;
 pub mod evidence_service;
 pub mod investigation_dataset_service;
 pub mod login_service;

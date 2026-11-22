@@ -43,3 +43,13 @@ Thumbs.db
 # =========================
 .vscode/
 .idea/
+
+# Local blockchain deployment credentials
+blockchain/.env
+
+# Docker image archives
+*.tar
+
+# Foundry build output
+blockchain/out/
+blockchain/cache/
